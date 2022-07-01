@@ -49,6 +49,7 @@ func New(ctx context.Context) func() error {
 				return nil
 			case d := <-msgs:
 				fmt.Printf("Delivered message: %s\n", d.Body)
+				handle(d.Body)
 			}
 		}
 	}
