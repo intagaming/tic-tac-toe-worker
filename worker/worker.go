@@ -48,7 +48,6 @@ func New(ctx context.Context) func() error {
 				fmt.Println("Breaking out of the loop")
 				return nil
 			case d := <-msgs:
-				fmt.Printf("Delivered message: %s\n", d.Body)
 				handle(d.Body)
 			}
 		}
