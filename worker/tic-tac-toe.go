@@ -79,7 +79,7 @@ func withRoom(ctx context.Context, roomId string) (context.Context, error) {
 }
 
 func roomIdFromControlChannel(channel string) string {
-	return strings.Split(strings.Replace(channel, "control:", "", 1), ":")[0]
+	return strings.Replace(channel, "control:", "", 1)
 }
 
 func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
@@ -117,7 +117,7 @@ func onLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
 	channel := presenceMsg.Channel
-	roomId := strings.Split(strings.Replace(channel, "control:", "", 1), ":")[0]
+	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
@@ -187,7 +187,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
 	channel := presenceMsg.Channel
-	roomId := strings.Split(strings.Replace(channel, "control:", "", 1), ":")[0]
+	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
@@ -258,7 +258,6 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
 	msg := messageMessage.Messages[0]
 	// channel := messageMessage.Channel
-	// roomId := strings.Split(strings.Replace(channel, "control:", "", 1), ":")[0]
 	// clientId := msg.ClientId
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
