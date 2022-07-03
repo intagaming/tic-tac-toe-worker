@@ -9,6 +9,8 @@ import (
 	"github.com/ably/ably-go/ably"
 )
 
+type serverChannelCtxKey struct{}
+
 type QueueMessage struct {
 	Source  string `json:"source"`
 	AppId   string `json:"appId"`
@@ -37,6 +39,15 @@ type Message struct {
 	Data         string `json:"data"`
 }
 
+func unmarshalQueueMessage(payload []byte) (*QueueMessage, error) {
+	msg := &QueueMessage{}
+	err := json.Unmarshal(payload, msg)
+	if err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
 func unmarshalPresence(payload []byte) (*PresenceMessage, error) {
 	msg := &PresenceMessage{}
 	err := json.Unmarshal(payload, msg)
@@ -56,6 +67,19 @@ func unmarshalMessage(payload []byte) (*MessageMessage, error) {
 }
 
 func handle(ctx context.Context, payload []byte) {
+	queueMessage, err := unmarshalQueueMessage(payload)
+	if err != nil {
+		log.Println("Error unmarshalling queue message: ", err)
+		return
+	}
+
+	// Attach "server:[roomId]" channel to context
+	ablyClient := ctx.Value(ablyCtxKey{}).(*ably.Realtime)
+	channel := queueMessage.Channel
+	roomId := strings.Replace(channel, "control:", "", 1)
+	serverChannel := ablyClient.Channels.Get("server:" + roomId)
+	ctx = context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
+
 	json := string(payload)
 	if strings.Contains(json, "channel.presence") {
 		msg, err := unmarshalPresence(payload)
@@ -83,7 +107,7 @@ func handlePresence(ctx context.Context, presenceMsg *PresenceMessage) {
 	case int(ably.PresenceActionEnter):
 		onEnter(ctx, presenceMsg)
 	case int(ably.PresenceActionLeave):
-		log.Printf("%s left channel %s\n", msg.ClientId, presenceMsg.Channel)
+		onLeave(ctx, presenceMsg)
 	}
 }
 
