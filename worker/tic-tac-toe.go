@@ -34,20 +34,22 @@ const (
 	HOST_CHANGE Announcers = iota
 	ROOM_STATE
 	GAME_STARTS_NOW
+	CLIENT_LEFT
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT"}[a]
 }
 
 type Actions int
 
 const (
 	START_GAME Actions = iota
+	LEAVE_ROOM
 )
 
 func (a Actions) String() string {
-	return [...]string{"START_GAME"}[a]
+	return [...]string{"START_GAME", "LEAVE_ROOM"}[a]
 }
 
 type serverChannelCtxKey struct{}
@@ -184,10 +186,41 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 }
 
+func expireRoomIfNecessary(ctx context.Context, room Room, leftClientId string) {
+	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
+
+	// Set expiration for the room if all clients have left
+	var toCheck *string
+	if room.Host != nil && *room.Host == leftClientId {
+		toCheck = room.Guest
+	} else if room.Guest != nil && *room.Guest == leftClientId {
+		toCheck = room.Host
+	} else { // If not the host or guest, keep the room alive
+		return
+	}
+	if toCheck == nil {
+		log.Println("toCheck is nil")
+		redisClient.Expire(ctx, "room:"+room.Id, 10*time.Minute)
+	} else {
+		log.Println("toCheck", *toCheck)
+		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
+		if err != nil {
+			log.Printf("Error getting TTL for client %s: %s\n", *toCheck, err)
+			return
+		}
+		// If the other client is still in the room, don't expire the room. Else...
+		log.Printf("TTL for client %s: %v\n", *toCheck, ttl)
+		if ttl != -1 {
+			log.Println("run")
+			redisClient.Expire(ctx, "room:"+room.Id, 10*time.Minute)
+		}
+	}
+}
+
 func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
-	channel := presenceMsg.Channel
-	roomId := roomIdFromControlChannel(channel)
+	// channel := presenceMsg.Channel
+	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
@@ -197,27 +230,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	room := ctx.Value(roomCtxKey{}).(Room)
 
-	// Set expiration for the room if all clients have left
-	var toCheck *string
-	if room.Host != nil && *room.Host == clientId {
-		toCheck = room.Guest
-	} else if room.Guest != nil && *room.Guest == clientId {
-		toCheck = room.Host
-	}
-	if toCheck == nil {
-		redisClient.Expire(ctx, "room:"+roomId, 10*time.Minute)
-	} else {
-		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
-		if err != nil {
-			log.Printf("Error getting TTL for client %s: %s\n", *toCheck, err)
-			return
-		}
-		// If the other client is still in the room, don't expire the room. Else...
-		if ttl != -1 {
-			redisClient.Expire(ctx, "room:"+roomId, 10*time.Minute)
-		}
-	}
-
+	expireRoomIfNecessary(ctx, room, clientId)
 	/*switch room.State {
 	case "waiting":
 		if clientId == *room.Host {
@@ -283,5 +296,16 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 
 		serverChannel.Publish(ctx, GAME_STARTS_NOW.String(), string(roomJson))
+	case LEAVE_ROOM.String():
+		// Remove player from room
+		clientToRemove := msg.Data
+		if room.Host != nil && *room.Host == clientToRemove {
+			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
+		} else if room.Guest != nil && *room.Guest == clientToRemove {
+			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
+		}
+		serverChannel.Publish(ctx, CLIENT_LEFT.String(), clientToRemove)
+
+		expireRoomIfNecessary(ctx, room, clientToRemove)
 	}
 }
