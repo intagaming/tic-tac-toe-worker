@@ -66,7 +66,7 @@ func unmarshalMessage(payload []byte) (*MessageMessage, error) {
 
 func handle(ctx context.Context, payload []byte) {
 	json := string(payload)
-	log.Println(json)
+	// log.Println(json)
 	if strings.Contains(json, "channel.presence") {
 		msg, err := unmarshalPresence(payload)
 		if err != nil {
