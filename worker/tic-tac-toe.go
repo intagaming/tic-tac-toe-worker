@@ -227,25 +227,6 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	room := ctx.Value(roomCtxKey{}).(Room)
 
 	expireRoomIfNecessary(ctx, room, clientId)
-	/*switch room.State {
-	case "waiting":
-		if clientId == *room.Host {
-			if room.Guest == nil {
-				// No guest, delete room
-				redisClient.Do(ctx, "JSON.DEL", "room:"+roomId)
-				// Don't need to notify anyone, the room is gone
-				log.Printf("Room %s deleted\n", roomId)
-				return
-			}
-			// Make guest the new host
-			pipe := redisClient.Pipeline()
-			pipe.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+*room.Guest+"\"")
-			pipe.Do(ctx, "JSON.SET", "room:"+roomId, "$.guest", "null")
-			pipe.Exec(ctx)
-			// Notify the guest that you're now the host
-			serverChannel.Publish(ctx, HOST_CHANGE.String(), room.Guest)
-		}
-	}*/
 }
 
 func onMessage(ctx context.Context, messageMessage *MessageMessage) {
