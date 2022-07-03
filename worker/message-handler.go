@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"strings"
@@ -54,7 +55,7 @@ func unmarshalMessage(payload []byte) (*MessageMessage, error) {
 	return msg, nil
 }
 
-func handle(payload []byte) {
+func handle(ctx context.Context, payload []byte) {
 	json := string(payload)
 	if strings.Contains(json, "channel.presence") {
 		msg, err := unmarshalPresence(payload)
@@ -62,31 +63,31 @@ func handle(payload []byte) {
 			log.Println("Error unmarshalling presence message: ", err)
 			return
 		}
-		handlePresence(msg)
+		handlePresence(ctx, msg)
 	} else if strings.Contains(json, "channel.message") {
 		msg, err := unmarshalMessage(payload)
 		if err != nil {
 			log.Println("Error unmarshalling message: ", err)
 			return
 		}
-		handleMessage(msg)
+		handleMessage(ctx, msg)
 	} else {
 		log.Println("Unknown message: ", json)
 	}
 }
 
-func handlePresence(presenceMsg *PresenceMessage) {
+func handlePresence(ctx context.Context, presenceMsg *PresenceMessage) {
 	msg := presenceMsg.Presence[0]
 	// log.Println("Handling presence: ", msg)
 	switch msg.Action {
 	case int(ably.PresenceActionEnter):
-		log.Printf("%s entered channel %s\n", msg.ClientId, presenceMsg.Channel)
+		onEnter(ctx, presenceMsg)
 	case int(ably.PresenceActionLeave):
 		log.Printf("%s left channel %s\n", msg.ClientId, presenceMsg.Channel)
 	}
 }
 
-func handleMessage(messageMsg *MessageMessage) {
+func handleMessage(ctx context.Context, messageMsg *MessageMessage) {
 	msg := messageMsg.Messages[0]
 	log.Println("Handling message: ", msg)
 }
