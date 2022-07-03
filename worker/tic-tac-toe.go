@@ -110,8 +110,10 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		return
 	}
 	// TODO: do something when the host is already set
-	// Persist the roomId while the client is in the room
+	// Persists the client's roomId
 	redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+	// Persists the room
+	redisClient.Persist(ctx, "room:"+roomId)
 
 	// Send the room state
 	roomJson, err := json.Marshal(room)
@@ -130,6 +132,9 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
+	// The client has 2 hours to join the room again
+	redisClient.Expire(ctx, "client:"+clientId, 2*time.Hour)
+
 	val, err := redisClient.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -146,12 +151,28 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 		log.Printf("Error unmarshalling json data: %s. Raw: %s\n", err, val.(string))
 		return
 	}
-	// room := data[0]
+	room := data[0]
 
-	// The client has 2 hours to join the room again
-	redisClient.Expire(ctx, "client:"+clientId, 2*time.Hour)
-
-	// TODO: Set expiration for the room if all clients have left
+	// Set expiration for the room if all clients have left
+	var toCheck *string
+	if *room.Host == clientId {
+		toCheck = room.Guest
+	} else if *room.Guest == clientId {
+		toCheck = room.Host
+	}
+	if toCheck == nil {
+		redisClient.Expire(ctx, "room:"+roomId, 2*time.Hour)
+	} else {
+		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
+		if err != nil {
+			log.Printf("Error getting TTL for client %s: %s\n", *toCheck, err)
+			return
+		}
+		// If the other client is still in the room, don't expire the room. Else...
+		if ttl == -1 {
+			redisClient.Expire(ctx, "room:"+roomId, 2*time.Hour)
+		}
+	}
 
 	/*switch room.State {
 	case "waiting":
