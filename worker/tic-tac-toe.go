@@ -160,8 +160,8 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
-	// The client has 2 hours to join the room again
-	redisClient.Expire(ctx, "client:"+clientId, 2*time.Hour)
+	// The client has 10 minutes to join the room again
+	redisClient.Expire(ctx, "client:"+clientId, 10*time.Minute)
 
 	val, err := redisClient.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
 	if err != nil {
@@ -189,7 +189,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 		toCheck = room.Host
 	}
 	if toCheck == nil {
-		redisClient.Expire(ctx, "room:"+roomId, 2*time.Hour)
+		redisClient.Expire(ctx, "room:"+roomId, 10*time.Minute)
 	} else {
 		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
 		if err != nil {
@@ -198,7 +198,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		// If the other client is still in the room, don't expire the room. Else...
 		if ttl != -1 {
-			redisClient.Expire(ctx, "room:"+roomId, 2*time.Hour)
+			redisClient.Expire(ctx, "room:"+roomId, 10*time.Minute)
 		}
 	}
 
