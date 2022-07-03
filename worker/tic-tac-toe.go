@@ -199,19 +199,15 @@ func expireRoomIfNecessary(ctx context.Context, room Room, leftClientId string) 
 		return
 	}
 	if toCheck == nil {
-		log.Println("toCheck is nil")
 		redisClient.Expire(ctx, "room:"+room.Id, 10*time.Minute)
 	} else {
-		log.Println("toCheck", *toCheck)
 		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
 		if err != nil {
 			log.Printf("Error getting TTL for client %s: %s\n", *toCheck, err)
 			return
 		}
 		// If the other client is still in the room, don't expire the room. Else...
-		log.Printf("TTL for client %s: %v\n", *toCheck, ttl)
 		if ttl != -1 {
-			log.Println("run")
 			redisClient.Expire(ctx, "room:"+room.Id, 10*time.Minute)
 		}
 	}
