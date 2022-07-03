@@ -12,6 +12,7 @@ import (
 )
 
 type Room struct {
+	Id    string        `json:"id"`
 	Host  *string       `json:"host"`
 	State string        `json:"state"`
 	Guest *string       `json:"guest"`
@@ -22,17 +23,18 @@ type TicTacToeData struct {
 	Ticks      int      `json:"ticks"`
 	Board      []string `json:"board"`
 	Turn       string   `json:"turn"`
-	TurnEndsAt int      `json:"turn_ends_at"`
+	TurnEndsAt int      `json:"turnEndsAt"`
 }
 
 type Action int
 
 const (
 	HOST_CHANGE Action = iota
+	ROOM_STATE
 )
 
 func (a Action) String() string {
-	return [...]string{"HOST_CHANGE"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE"}[a]
 }
 
 func withServerChannel(ctx context.Context, channel string) context.Context {
@@ -90,20 +92,29 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	}
 	room := data[0]
 
+	roomJson, err := json.Marshal(room)
+	if err != nil {
+		log.Printf("Error marshalling room: %s\n", err)
+		return
+	}
+
 	if room.Host == nil { // If no host set
 		// Set as host
 		// TODO: fix race condition when we're setting the host but someone else joins first and became the host?
 		redisClient.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+clientId+"\"")
 		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
 		redisClient.Persist(ctx, "room:"+roomId)
-		// Notify the client that you're now the host
-		serverChannel.Publish(ctx, HOST_CHANGE.String(), clientId)
+
+		// Send the room state
+		serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 		return
 	}
 	// TODO: do something when the host is already set
 	// Persist the roomId while the client is in the room
 	redisClient.Set(ctx, "client:"+clientId, roomId, 0)
-	// serverChannel.Publish(ctx, HOST_CHANGE.String(), *room.Host)
+
+	// Send the room state
+	serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 }
 
 func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
