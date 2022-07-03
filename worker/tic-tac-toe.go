@@ -96,7 +96,9 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		// Set as host
 		// TODO: fix race condition when we're setting the host but someone else joins first and became the host?
 		redisClient.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+clientId+"\"")
+		// Persists the client's roomId
 		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+		// Persists the room
 		redisClient.Persist(ctx, "room:"+roomId)
 		room.Host = &clientId
 
@@ -108,13 +110,39 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 		return
-	}
-	// TODO: do something when the host is already set
-	// Persists the client's roomId
-	redisClient.Set(ctx, "client:"+clientId, roomId, 0)
-	// Persists the room
-	redisClient.Persist(ctx, "room:"+roomId)
+	} else if *room.Host != clientId && room.Guest == nil { // If not the host and no guest set
+		// Set as guest
+		redisClient.Do(ctx, "JSON.SET", "room:"+roomId, "$.guest", "\""+clientId+"\"")
+		// Persists the client's roomId
+		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+		// Persists the room
+		redisClient.Persist(ctx, "room:"+roomId)
+		room.Guest = &clientId
 
+		// Send the room state
+		roomJson, err := json.Marshal(room)
+		if err != nil {
+			log.Printf("Error marshalling room: %s\n", err)
+			return
+		}
+		serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
+		return
+	} else if *room.Host == clientId || *room.Guest == clientId { // If re-joining
+		// Persists the client's roomId
+		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+		// Persists the room
+		redisClient.Persist(ctx, "room:"+roomId)
+
+		// Send the room state
+		roomJson, err := json.Marshal(room)
+		if err != nil {
+			log.Printf("Error marshalling room: %s\n", err)
+			return
+		}
+		serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
+	}
+
+	// TODO: do something when the room is full
 	// Send the room state
 	roomJson, err := json.Marshal(room)
 	if err != nil {
@@ -155,9 +183,9 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	// Set expiration for the room if all clients have left
 	var toCheck *string
-	if *room.Host == clientId {
+	if room.Host != nil && *room.Host == clientId {
 		toCheck = room.Guest
-	} else if *room.Guest == clientId {
+	} else if room.Guest != nil && *room.Guest == clientId {
 		toCheck = room.Host
 	}
 	if toCheck == nil {
@@ -169,7 +197,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 			return
 		}
 		// If the other client is still in the room, don't expire the room. Else...
-		if ttl == -1 {
+		if ttl != -1 {
 			redisClient.Expire(ctx, "room:"+roomId, 2*time.Hour)
 		}
 	}
