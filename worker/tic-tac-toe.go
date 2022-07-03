@@ -92,20 +92,20 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	}
 	room := data[0]
 
-	roomJson, err := json.Marshal(room)
-	if err != nil {
-		log.Printf("Error marshalling room: %s\n", err)
-		return
-	}
-
 	if room.Host == nil { // If no host set
 		// Set as host
 		// TODO: fix race condition when we're setting the host but someone else joins first and became the host?
 		redisClient.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+clientId+"\"")
 		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
 		redisClient.Persist(ctx, "room:"+roomId)
+		room.Host = &clientId
 
 		// Send the room state
+		roomJson, err := json.Marshal(room)
+		if err != nil {
+			log.Printf("Error marshalling room: %s\n", err)
+			return
+		}
 		serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 		return
 	}
@@ -114,6 +114,11 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	redisClient.Set(ctx, "client:"+clientId, roomId, 0)
 
 	// Send the room state
+	roomJson, err := json.Marshal(room)
+	if err != nil {
+		log.Printf("Error marshalling room: %s\n", err)
+		return
+	}
 	serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 }
 
