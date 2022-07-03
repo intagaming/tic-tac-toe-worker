@@ -9,8 +9,6 @@ import (
 	"github.com/ably/ably-go/ably"
 )
 
-type serverChannelCtxKey struct{}
-
 type QueueMessage struct {
 	Source  string `json:"source"`
 	AppId   string `json:"appId"`
@@ -21,12 +19,22 @@ type QueueMessage struct {
 
 type PresenceMessage struct {
 	*QueueMessage
-	Presence []Message `json:"presence"`
+	Presence []Presence `json:"presence"`
 }
 
 type MessageMessage struct {
 	*QueueMessage
 	Messages []Message `json:"messages"`
+}
+
+type Presence struct {
+	Id           string `json:"id"`
+	ClientId     string `json:"clientId"`
+	ConnectionId string `json:"connectionId"`
+	Timestamp    int    `json:"timestamp"`
+	Name         string `json:"name"`
+	Action       int    `json:"action"`
+	Data         string `json:"data"`
 }
 
 type Message struct {
@@ -35,7 +43,6 @@ type Message struct {
 	ConnectionId string `json:"connectionId"`
 	Timestamp    int    `json:"timestamp"`
 	Name         string `json:"name"`
-	Action       int    `json:"action"`
 	Data         string `json:"data"`
 }
 
@@ -59,6 +66,7 @@ func unmarshalMessage(payload []byte) (*MessageMessage, error) {
 
 func handle(ctx context.Context, payload []byte) {
 	json := string(payload)
+	log.Println(json)
 	if strings.Contains(json, "channel.presence") {
 		msg, err := unmarshalPresence(payload)
 		if err != nil {
