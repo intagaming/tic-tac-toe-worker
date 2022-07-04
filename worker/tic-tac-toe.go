@@ -13,6 +13,8 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+const RoomTimeoutTime = 1 * time.Minute
+
 type Room struct {
 	Id    string        `json:"id"`
 	Host  *string       `json:"host"`
@@ -205,8 +207,8 @@ func expireRoomIfNecessary(ctx context.Context, room Room, leftClientId string) 
 	} else { // If not the host or guest, keep the room alive
 		return
 	}
-	if toCheck == nil {
-		redisClient.Expire(ctx, "room:"+room.Id, 10*time.Minute)
+	if toCheck == nil { // If there's no one left, expire the room
+		redisClient.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 	} else {
 		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
 		if err != nil {
@@ -215,7 +217,7 @@ func expireRoomIfNecessary(ctx context.Context, room Room, leftClientId string) 
 		}
 		// If the other client is still in the room, don't expire the room. Else...
 		if ttl != -1 {
-			redisClient.Expire(ctx, "room:"+room.Id, 10*time.Minute)
+			redisClient.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 		}
 	}
 }
@@ -228,8 +230,12 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
-	// The client has 10 minutes to join the room again
-	redisClient.Expire(ctx, "client:"+clientId, 10*time.Minute)
+	// The client has some time to join the room again. The due time is before the
+	// time the room expires minus 10 seconds. The 10 seconds is the wiggle-room,
+	// because if the player joins right at the time that the room is about to
+	// expire, the room might have already expired by the time the player
+	// establishes connection.
+	redisClient.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
 
 	room := ctx.Value(roomCtxKey{}).(Room)
 
