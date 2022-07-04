@@ -35,10 +35,16 @@ const (
 	ROOM_STATE
 	GAME_STARTS_NOW
 	CLIENT_LEFT
+	PLAYER_CHECKED_BOX
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX"}[a]
+}
+
+type CheckedBoxAnnouncement struct {
+	HostOrGuest string `json:"hostOrGuest"`
+	Box         int    `json:"box"`
 }
 
 type Actions int
@@ -292,6 +298,16 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			return
 		}
 
+		// Check if is host or guest
+		var isHost bool
+		if room.Host != nil && *room.Host == clientId {
+			isHost = true
+		} else if room.Guest != nil && *room.Guest == clientId {
+			isHost = false
+		} else {
+			return
+		}
+
 		// Check if it's the client's turn
 		if room.Host == nil || room.Guest == nil || (clientId == *room.Host && room.Data.Turn != "host") || (clientId == *room.Guest && room.Data.Turn != "guest") {
 			return
@@ -314,6 +330,31 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			log.Println("Box already checked") // TODO: remove
 			return
 		}
-		log.Println("to check")
+
+		var checkInto string
+		if isHost {
+			checkInto = "\"host\""
+		} else {
+			checkInto = "\"guest\""
+		}
+		var nextTurn string
+		if isHost {
+			nextTurn = "\"guest\""
+		} else {
+			nextTurn = "\"host\""
+		}
+		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", checkInto)
+		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turn", nextTurn)
+
+		announcement, err := json.Marshal(CheckedBoxAnnouncement{
+			HostOrGuest: strings.ReplaceAll(checkInto, "\"", ""),
+			Box:         boxToCheck,
+		})
+		if err != nil {
+			log.Printf("Error marshalling announcement: %s\n", err)
+			return
+		}
+		serverChannel.Publish(ctx, PLAYER_CHECKED_BOX.String(), string(announcement))
+		log.Println(string(announcement))
 	}
 }
