@@ -22,10 +22,10 @@ type Room struct {
 }
 
 type TicTacToeData struct {
-	Ticks      int      `json:"ticks"`
-	Board      []string `json:"board"`
-	Turn       string   `json:"turn"`
-	TurnEndsAt int      `json:"turnEndsAt"`
+	Ticks      int       `json:"ticks"`
+	Board      []*string `json:"board"`
+	Turn       string    `json:"turn"`
+	TurnEndsAt int       `json:"turnEndsAt"`
 }
 
 type Announcers int
@@ -46,10 +46,11 @@ type Actions int
 const (
 	START_GAME Actions = iota
 	LEAVE_ROOM
+	CHECK_BOX
 )
 
 func (a Actions) String() string {
-	return [...]string{"START_GAME", "LEAVE_ROOM"}[a]
+	return [...]string{"START_GAME", "LEAVE_ROOM", "CHECK_BOX"}[a]
 }
 
 type serverChannelCtxKey struct{}
@@ -248,7 +249,7 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
 	msg := messageMessage.Messages[0]
 	// channel := messageMessage.Channel
-	// clientId := msg.ClientId
+	clientId := msg.ClientId
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(roomCtxKey{}).(Room)
@@ -284,5 +285,35 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		serverChannel.Publish(ctx, CLIENT_LEFT.String(), clientToRemove)
 
 		expireRoomIfNecessary(ctx, room, clientToRemove)
+	case CHECK_BOX.String():
+		boxToCheck, err := strconv.Atoi(msg.Data)
+		if err != nil {
+			log.Printf("Error parsing box to check: %s\n", err)
+			return
+		}
+
+		// Check if it's the client's turn
+		if room.Host == nil || room.Guest == nil || (clientId == *room.Host && room.Data.Turn != "host") || (clientId == *room.Guest && room.Data.Turn != "guest") {
+			return
+		}
+
+		// Check if the boxJson is already checked
+		boxJson, err := redisClient.Do(ctx, "JSON.GET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]").Result()
+		if err != nil {
+			log.Printf("Error getting box: %s\n", err)
+			return
+		}
+		var boxes []*string
+		err = json.Unmarshal([]byte(boxJson.(string)), &boxes)
+		if err != nil {
+			log.Printf("Error unmarshalling box: %s\n", err)
+			return
+		}
+		box := boxes[0]
+		if box != nil {
+			log.Println("Box already checked") // TODO: remove
+			return
+		}
+		log.Println("to check")
 	}
 }
