@@ -355,6 +355,5 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			return
 		}
 		serverChannel.Publish(ctx, PLAYER_CHECKED_BOX.String(), string(announcement))
-		log.Println(string(announcement))
 	}
 }
