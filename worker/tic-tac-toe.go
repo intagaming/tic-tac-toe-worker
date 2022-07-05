@@ -40,10 +40,11 @@ const (
 	CLIENT_LEFT
 	PLAYER_CHECKED_BOX
 	WINNER
+	GAME_ENDED
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "WINNER"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "WINNER", "GAME_ENDED"}[a]
 }
 
 type CheckedBoxAnnouncement struct {
@@ -301,6 +302,13 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
 		}
 		serverChannel.Publish(ctx, CLIENT_LEFT.String(), clientToRemove)
+
+		// End the game
+		if room.State == "playing" {
+			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
+			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
+			serverChannel.Publish(ctx, GAME_ENDED.String(), strconv.Itoa(gameEndsAt))
+		}
 
 		expireRoomIfNecessary(ctx, room, clientToRemove)
 	case CHECK_BOX.String():
