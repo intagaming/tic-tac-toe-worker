@@ -92,7 +92,7 @@ func withRoom(ctx context.Context, roomId string) (context.Context, error) {
 	if err != nil {
 		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val.(string))
 	}
-	return context.WithValue(ctx, roomCtxKey{}, data[0]), err
+	return context.WithValue(ctx, roomCtxKey{}, &data[0]), err
 }
 
 func roomIdFromControlChannel(channel string) string {
@@ -139,7 +139,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
-	room := ctx.Value(roomCtxKey{}).(Room)
+	room := ctx.Value(roomCtxKey{}).(*Room)
 
 	if room.Host == nil { // If no host set
 		// Set as host
@@ -201,7 +201,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 }
 
-func expireRoomIfNecessary(ctx context.Context, room Room, leftClientId string) {
+func expireRoomIfNecessary(ctx context.Context, room *Room, leftClientId string) {
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 
 	// Set expiration for the room if all clients have left
@@ -243,7 +243,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// establishes connection.
 	redisClient.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
 
-	room := ctx.Value(roomCtxKey{}).(Room)
+	room := ctx.Value(roomCtxKey{}).(*Room)
 
 	expireRoomIfNecessary(ctx, room, clientId)
 }
@@ -270,7 +270,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	clientId := msg.ClientId
 	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
-	room := ctx.Value(roomCtxKey{}).(Room)
+	room := ctx.Value(roomCtxKey{}).(*Room)
 
 	switch msg.Name {
 	case START_GAME.String():
@@ -345,16 +345,17 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 		var checkInto string
 		if isHost {
-			checkInto = "\"host\""
+			checkInto = "host"
 		} else {
-			checkInto = "\"guest\""
+			checkInto = "guest"
 		}
-		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", checkInto)
+		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", "\""+checkInto+"\"")
 		// Update the board to use later
 		room.Data.Board[boxToCheck] = &checkInto
+		fmt.Printf("%v\n", room.Data.Board)
 
 		announcement, err := json.Marshal(CheckedBoxAnnouncement{
-			HostOrGuest: strings.ReplaceAll(checkInto, "\"", ""),
+			HostOrGuest: checkInto,
 			Box:         boxToCheck,
 		})
 		if err != nil {
@@ -398,8 +399,9 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 // checkWin returns the winner, either "host" or "guest"
 func checkWin(ctx context.Context) *string {
-	room := ctx.Value(roomCtxKey{}).(Room)
+	room := ctx.Value(roomCtxKey{}).(*Room)
 	board := room.Data.Board
+	fmt.Printf("%v\n", board)
 	if board[0] != nil && board[1] != nil && board[2] != nil && *board[0] == *board[1] && *board[1] == *board[2] {
 		return board[0]
 	}
@@ -424,5 +426,6 @@ func checkWin(ctx context.Context) *string {
 	if board[2] != nil && board[4] != nil && board[6] != nil && *board[2] == *board[4] && *board[4] == *board[6] {
 		return board[2]
 	}
+	log.Println("returning nil")
 	return nil
 }
