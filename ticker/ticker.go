@@ -9,7 +9,6 @@ import (
 	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
 	"log"
 	"os"
-	"strconv"
 	"time"
 )
 
@@ -65,13 +64,13 @@ func New(ctx context.Context) func() error {
 				fmt.Println("Breaking out of the loop")
 				return nil
 			case <-time.After(ticker.sleepUntil.Sub(time.Now())):
-				tick(ctx)
+				tryTick(ctx)
 			}
 		}
 	}
 }
 
-func tick(ctx context.Context) {
+func tryTick(ctx context.Context) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
 
 	log.Println("--- Trying to find something to tick")
@@ -152,9 +151,7 @@ func tick(ctx context.Context) {
 			continue
 		}
 
-		log.Println("Ticking room: ", candidate.Member, ", tick unix: "+strconv.FormatInt(unix.UnixMicro(), 10)+", current unix: "+strconv.FormatInt(time.Now().UnixMicro(), 10))
-		log.Println("Simulating 0.2tick tick time for room: ", candidate.Member)
-		time.Sleep(TickTime / 10 * 2)
+		tick(ctx, candidate.Member.(string))
 
 		// Set room score to the next tick time
 		nextTickTime := unix.Add(TickTime)
@@ -212,4 +209,10 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
 	idleOff(ctx)
 	ticker.sleepUntil = sleepUntil
+}
+
+func tick(ctx context.Context, roomId string) {
+	log.Println("Ticking room: " + roomId)
+	log.Println("Simulating 0.2tick tick time for room: ", roomId)
+	time.Sleep(TickTime / 10 * 2)
 }
