@@ -19,13 +19,14 @@ type ablyCtxKey struct{}
 type tickerCtxKey struct{}
 
 type Ticker struct {
-	idle       bool
-	idleTicks  int
-	sleepUntil time.Time
+	idle          bool
+	idleHalfTicks int
+	sleepUntil    time.Time
 }
 
-const TickTime = 5 * time.Second
-const IdleTickInterval = 5
+const TickTime = 2 * time.Second
+const IdleHalfTicksTrigger = 10       // After this amount of half-tick idling, idle mode will be on.
+const IdleInterval = 10 * time.Second // In idle mode, we will tick every following interval.
 
 func New(ctx context.Context) func() error {
 	return func() error {
@@ -52,9 +53,9 @@ func New(ctx context.Context) func() error {
 		ctx = context.WithValue(ctx, ablyCtxKey{}, ablyClient)
 
 		ticker := &Ticker{
-			idle:       true,
-			idleTicks:  0,
-			sleepUntil: time.Now(),
+			idle:          false,
+			idleHalfTicks: 0,
+			sleepUntil:    time.Now(),
 		}
 		ctx = context.WithValue(ctx, tickerCtxKey{}, ticker)
 
@@ -65,15 +66,6 @@ func New(ctx context.Context) func() error {
 				return nil
 			case <-time.After(ticker.sleepUntil.Sub(time.Now())):
 				tick(ctx)
-				//if ticker.idle {
-				//	ticker.idleTicks += 1
-				//}
-				//if !ticker.idle || ticker.idleTicks >= IdleTickInterval {
-				//	tick(ctx)
-				//	if ticker.idle {
-				//		ticker.idleTicks = 0
-				//	}
-				//}
 			}
 		}
 	}
@@ -101,9 +93,9 @@ func tick(ctx context.Context) {
 			return
 		}
 		if len(zs) == 0 {
-			log.Println("No tasks in the queue")
+			log.Println("No tasks in the queue, sleeping half a tick")
 			// Sleep half a tick because we're not very busy
-			ticker.sleepUntil = time.Now().Add(TickTime / 2)
+			idleHalfTick(ctx)
 			return
 		}
 		candidate := zs[0]
@@ -116,14 +108,26 @@ func tick(ctx context.Context) {
 			panic(err)
 		}
 		if !time.Now().After(unix) {
-			log.Println("Not yet need to tick, relaxing half a tick")
+			log.Println("Not yet need to tick, relaxing half a tick or until the task is due")
 			// Sleep min(half a tick, time until the task is due)
-			minTime := TickTime / 2
-			if unix.Sub(time.Now()) < minTime {
-				minTime = unix.Sub(time.Now())
+			if unix.Sub(time.Now()) < TickTime/2 { // If the task is due soon
+				if ticker.idle {
+					idleOffWithSleepUntil(ctx, time.Now().Add(unix.Sub(time.Now())))
+				} else {
+					ticker.sleepUntil = time.Now().Add(unix.Sub(time.Now()))
+				}
+			} else {
+				idleHalfTick(ctx)
 			}
-			ticker.sleepUntil = time.Now().Add(minTime)
 			return
+		}
+
+		// We're in business. If in idle mode, turn it off.
+		if ticker.idle {
+			idleOff(ctx)
+		}
+		if ticker.idleHalfTicks > 0 {
+			ticker.idleHalfTicks = 0
 		}
 
 		log.Println("Acquiring lock for room: ", candidate.Member)
@@ -137,6 +141,7 @@ func tick(ctx context.Context) {
 		// After acquiring the lock, check if the task has been processed by another ticker. Happens if the task's time
 		// is checked at the same time to be processable by 2 tickers, then both ticker attempts to acquire the lock.
 		// The first ticker processes the task, then the second one get the chance, but the task is already processed.
+		// Also, if the task is deleted by the worker, the following command will error, and we would skip.
 		scoreCheck, err := rdb.ZScore(ctx, "tickingRooms", candidate.Member.(string)).Result()
 		if err != nil {
 			panic(err)
@@ -176,4 +181,35 @@ func tick(ctx context.Context) {
 		}
 		return
 	}
+}
+
+func idleHalfTick(ctx context.Context) {
+	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
+	if ticker.idle == false && ticker.idleHalfTicks >= IdleHalfTicksTrigger {
+		log.Println("Idle mode enabled.")
+		ticker.idle = true
+		ticker.idleHalfTicks = 0
+		ticker.sleepUntil = time.Now().Add(IdleInterval)
+		return
+	}
+	if ticker.idle == true {
+		ticker.sleepUntil = time.Now().Add(IdleInterval)
+	} else {
+		ticker.idleHalfTicks += 1
+		ticker.sleepUntil = time.Now().Add(TickTime / 2)
+	}
+	log.Println("testing", ticker.idleHalfTicks)
+}
+
+func idleOff(ctx context.Context) {
+	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
+	ticker.idle = false
+	ticker.idleHalfTicks = 0
+	log.Println("Idle mode disabled. Ticking mode enabled.")
+}
+
+func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
+	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
+	idleOff(ctx)
+	ticker.sleepUntil = sleepUntil
 }
