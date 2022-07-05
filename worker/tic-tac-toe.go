@@ -28,6 +28,7 @@ type TicTacToeData struct {
 	Board      []*string `json:"board"`
 	Turn       string    `json:"turn"`
 	TurnEndsAt int       `json:"turnEndsAt"`
+	GameEndsAt int       `json:"gameEndsAt"`
 }
 
 type Announcers int
@@ -38,15 +39,20 @@ const (
 	GAME_STARTS_NOW
 	CLIENT_LEFT
 	PLAYER_CHECKED_BOX
+	WINNER
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "WINNER"}[a]
 }
 
 type CheckedBoxAnnouncement struct {
 	HostOrGuest string `json:"hostOrGuest"`
 	Box         int    `json:"box"`
+}
+type WinnerAnnouncement struct {
+	Winner     string `json:"winner"`
+	GameEndsAt int    `json:"gameEndsAt"`
 }
 
 type Actions int
@@ -343,14 +349,9 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		} else {
 			checkInto = "\"guest\""
 		}
-		var nextTurn string
-		if isHost {
-			nextTurn = "\"guest\""
-		} else {
-			nextTurn = "\"host\""
-		}
 		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", checkInto)
-		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turn", nextTurn)
+		// Update the board to use later
+		room.Data.Board[boxToCheck] = &checkInto
 
 		announcement, err := json.Marshal(CheckedBoxAnnouncement{
 			HostOrGuest: strings.ReplaceAll(checkInto, "\"", ""),
@@ -361,5 +362,67 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			return
 		}
 		serverChannel.Publish(ctx, PLAYER_CHECKED_BOX.String(), string(announcement))
+
+		// Check if someone's winning
+		winning := checkWin(ctx)
+		log.Println(winning)
+		if winning != nil {
+			log.Println(*winning)
+			// Change game state
+			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
+			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
+			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
+
+			// Announce winner
+			announcement, err := json.Marshal(WinnerAnnouncement{
+				Winner:     *winning,
+				GameEndsAt: gameEndsAt,
+			})
+			if err != nil {
+				log.Printf("Error marshalling winner announcement: %s\n", err)
+				return
+			}
+			serverChannel.Publish(ctx, WINNER.String(), string(announcement))
+			return
+		}
+
+		var nextTurn string
+		if isHost {
+			nextTurn = "\"guest\""
+		} else {
+			nextTurn = "\"host\""
+		}
+		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turn", nextTurn)
 	}
+}
+
+// checkWin returns the winner, either "host" or "guest"
+func checkWin(ctx context.Context) *string {
+	room := ctx.Value(roomCtxKey{}).(Room)
+	board := room.Data.Board
+	if board[0] != nil && board[1] != nil && board[2] != nil && *board[0] == *board[1] && *board[1] == *board[2] {
+		return board[0]
+	}
+	if board[3] != nil && board[4] != nil && board[5] != nil && *board[3] == *board[4] && *board[4] == *board[5] {
+		return board[3]
+	}
+	if board[6] != nil && board[7] != nil && board[8] != nil && *board[6] == *board[7] && *board[7] == *board[8] {
+		return board[6]
+	}
+	if board[0] != nil && board[3] != nil && board[6] != nil && *board[0] == *board[3] && *board[3] == *board[6] {
+		return board[0]
+	}
+	if board[1] != nil && board[4] != nil && board[7] != nil && *board[1] == *board[4] && *board[4] == *board[7] {
+		return board[1]
+	}
+	if board[2] != nil && board[5] != nil && board[8] != nil && *board[2] == *board[5] && *board[5] == *board[8] {
+		return board[2]
+	}
+	if board[0] != nil && board[4] != nil && board[8] != nil && *board[0] == *board[4] && *board[4] == *board[8] {
+		return board[0]
+	}
+	if board[2] != nil && board[4] != nil && board[6] != nil && *board[2] == *board[4] && *board[4] == *board[6] {
+		return board[2]
+	}
+	return nil
 }
