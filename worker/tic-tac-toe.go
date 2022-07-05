@@ -280,11 +280,15 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 
 		// Starting the game...
-		turnEndsAt := int(time.Now().Add(30 * time.Second).Unix())
+		now := time.Now()
+		turnEndsAt := int(now.Add(30 * time.Second).Unix())
 		room.State = "playing"
 		room.Data.TurnEndsAt = turnEndsAt
 		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"playing\"")
 		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turnEndsAt", strconv.Itoa(turnEndsAt))
+
+		// Add the game to the ticker sorted set
+		redisClient.ZAdd(ctx, "tickingRooms", &redis.Z{Score: float64(now.UnixMicro()), Member: room.Id})
 
 		roomJson, err := json.Marshal(room)
 		if err != nil {

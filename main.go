@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"hxann.com/tic-tac-toe-worker/ticker"
 	"log"
 	"os"
 	"os/signal"
@@ -26,8 +27,11 @@ func main() {
 	// }
 	// channel := client.Channels.Get("")
 
-	// Listening for messages on the queue
+	// Worker listening for messages on the queue
 	g.Go(worker.New(gCtx))
+
+	// New ticker
+	g.Go(ticker.New(gCtx))
 
 	err := g.Wait()
 	if err != nil {

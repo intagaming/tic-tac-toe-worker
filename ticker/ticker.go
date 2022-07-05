@@ -1,0 +1,179 @@
+package ticker
+
+import (
+	"context"
+	"fmt"
+	"github.com/ably/ably-go/ably"
+	"github.com/go-redis/redis/v8"
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
+	"log"
+	"os"
+	"strconv"
+	"time"
+)
+
+type redisCtxKey struct{}
+type redsyncCtxKey struct{}
+type ablyCtxKey struct{}
+type tickerCtxKey struct{}
+
+type Ticker struct {
+	idle       bool
+	idleTicks  int
+	sleepUntil time.Time
+}
+
+const TickTime = 5 * time.Second
+const IdleTickInterval = 5
+
+func New(ctx context.Context) func() error {
+	return func() error {
+		ablyApiKey := os.Getenv("ABLY_API_KEY")
+
+		// Redis
+		opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
+		if err != nil {
+			panic(err)
+		}
+		rdb := redis.NewClient(opt)
+		ctx = context.WithValue(ctx, redisCtxKey{}, rdb)
+
+		pool := goredis.NewPool(rdb)
+		// Create an instance of redisync to be used to obtain a mutual exclusion lock.
+		rs := redsync.New(pool)
+		ctx = context.WithValue(ctx, redsyncCtxKey{}, rs)
+
+		// Ably
+		ablyClient, err := ably.NewRealtime(ably.WithKey(ablyApiKey))
+		if err != nil {
+			panic(err)
+		}
+		ctx = context.WithValue(ctx, ablyCtxKey{}, ablyClient)
+
+		ticker := &Ticker{
+			idle:       true,
+			idleTicks:  0,
+			sleepUntil: time.Now(),
+		}
+		ctx = context.WithValue(ctx, tickerCtxKey{}, ticker)
+
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("Breaking out of the loop")
+				return nil
+			case <-time.After(ticker.sleepUntil.Sub(time.Now())):
+				tick(ctx)
+				//if ticker.idle {
+				//	ticker.idleTicks += 1
+				//}
+				//if !ticker.idle || ticker.idleTicks >= IdleTickInterval {
+				//	tick(ctx)
+				//	if ticker.idle {
+				//		ticker.idleTicks = 0
+				//	}
+				//}
+			}
+		}
+	}
+}
+
+func tick(ctx context.Context) {
+	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
+
+	log.Println("--- Trying to find something to tick")
+
+	rdb := ctx.Value(redisCtxKey{}).(*redis.Client)
+	rs := ctx.Value(redsyncCtxKey{}).(*redsync.Redsync)
+
+	// Keep trying until ticking once, then quit tick()
+	for {
+		// Find the lowest score task in the queue
+		// TODO: change to infinity somehow
+		zs, err := rdb.ZRangeArgsWithScores(ctx, redis.ZRangeArgs{
+			Key:   "tickingRooms",
+			Start: 0,
+			Stop:  0,
+		}).Result()
+		if err != nil {
+			log.Println("Error getting lowest score task: ", err)
+			return
+		}
+		if len(zs) == 0 {
+			log.Println("No tasks in the queue")
+			// Sleep half a tick because we're not very busy
+			ticker.sleepUntil = time.Now().Add(TickTime / 2)
+			return
+		}
+		candidate := zs[0]
+		startTime := time.Now()
+		// .Score is in UnixMicro, so we divide by 1e6 to get seconds, but from seconds we multiply by 1e9 to get nanoseconds
+		unixSeconds := int64(candidate.Score / 1e6)
+		unixNano := int64((candidate.Score/1e6 - float64(unixSeconds)) * 1e9)
+		unix := time.Unix(unixSeconds, unixNano)
+		if err != nil {
+			panic(err)
+		}
+		if !time.Now().After(unix) {
+			log.Println("Not yet need to tick, relaxing half a tick")
+			// Sleep min(half a tick, time until the task is due)
+			minTime := TickTime / 2
+			if unix.Sub(time.Now()) < minTime {
+				minTime = unix.Sub(time.Now())
+			}
+			ticker.sleepUntil = time.Now().Add(minTime)
+			return
+		}
+
+		log.Println("Acquiring lock for room: ", candidate.Member)
+		// Try to acquire lock on the room
+		mutexname := "tick:" + candidate.Member.(string)
+		mutex := rs.NewMutex(mutexname)
+		if err := mutex.Lock(); err != nil {
+			panic(err)
+		}
+
+		// After acquiring the lock, check if the task has been processed by another ticker. Happens if the task's time
+		// is checked at the same time to be processable by 2 tickers, then both ticker attempts to acquire the lock.
+		// The first ticker processes the task, then the second one get the chance, but the task is already processed.
+		scoreCheck, err := rdb.ZScore(ctx, "tickingRooms", candidate.Member.(string)).Result()
+		if err != nil {
+			panic(err)
+		}
+		if scoreCheck != candidate.Score {
+			log.Println("Room " + candidate.Member.(string) + " has already been processed by another ticker")
+			// Retry immediately
+			continue
+		}
+
+		log.Println("Ticking room: ", candidate.Member, ", tick unix: "+strconv.FormatInt(unix.UnixMicro(), 10)+", current unix: "+strconv.FormatInt(time.Now().UnixMicro(), 10))
+		log.Println("Simulating 0.2tick tick time for room: ", candidate.Member)
+		time.Sleep(TickTime / 10 * 2)
+
+		// Set room score to the next tick time
+		nextTickTime := unix.Add(TickTime)
+		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
+			Score:  float64(nextTickTime.UnixMicro()),
+			Member: candidate.Member,
+		})
+
+		log.Println("Releasing lock")
+		if ok, err := mutex.Unlock(); !ok || err != nil {
+			panic("unlock failed")
+		}
+
+		timeElapsed := time.Now().Sub(startTime)
+		log.Println("Time elapsed for room: ", candidate.Member, ": ", timeElapsed)
+		if time.Now().After(nextTickTime) {
+			log.Println("Room ", candidate.Member, " is late. Don't delay! Tick today.")
+			return
+		}
+		if timeElapsed < TickTime/2 {
+			// We only do one ticking every half a tick, so we need to sleep for the remaining time
+			log.Println("Doing task for shorter than half a tick, sleeping for ", TickTime/2-timeElapsed)
+			ticker.sleepUntil = time.Now().Add(TickTime/2 - timeElapsed)
+		}
+		return
+	}
+}
