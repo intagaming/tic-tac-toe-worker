@@ -261,6 +261,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			// If we have a guest, make that guest the new host
 			if room.Guest != nil {
 				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "\""+*room.Guest+"\"")
+				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
 				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
 			} else {
 				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
