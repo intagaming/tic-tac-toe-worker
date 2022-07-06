@@ -175,13 +175,18 @@ func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId 
 	if toCheck == nil { // If there's no one left, expire the room
 		redisClient.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 	} else {
-		ttl, err := redisClient.TTL(ctx, "client:"+*toCheck).Result()
+		pipe := redisClient.Pipeline()
+		ttl := pipe.TTL(ctx, "client:"+*toCheck)
+		clientRoomId := pipe.Get(ctx, "client:"+*toCheck)
+
+		_, err := pipe.Exec(ctx)
 		if err != nil {
-			log.Printf("Error getting TTL for client %s: %s\n", *toCheck, err)
+			log.Printf("Error getting TTL and clientRoomId for client %s: %s\n", *toCheck, err)
 			return
 		}
-		// If the other client is still in the room, don't expire the room. Else...
-		if ttl != -1 {
+
+		// If the other client is not in the room, or the room they're in is not the room in question, then expire the room.
+		if ttl.Val() != -1 || clientRoomId.Val() != room.Id {
 			redisClient.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 		}
 	}
