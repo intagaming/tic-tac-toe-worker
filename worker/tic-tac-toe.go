@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"hxann.com/tic-tac-toe-worker/shared"
 	"log"
 	"strconv"
@@ -23,22 +24,22 @@ const (
 	GameStartsNow
 	ClientLeft
 	PlayerCheckedBox
-	Winner
+	GameResultAnnounce
 	GameFinishing
 	GameFinished
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "WINNER", "GAME_FINISHING", "GAME_FINISHED"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "GAME_RESULT", "GAME_FINISHING", "GAME_FINISHED"}[a]
 }
 
 type CheckedBoxAnnouncement struct {
 	HostOrGuest string `json:"hostOrGuest"`
 	Box         int    `json:"box"`
 }
-type WinnerAnnouncement struct {
-	Winner     string `json:"winner"`
-	GameEndsAt int    `json:"gameEndsAt"`
+type GameResultAnnouncement struct {
+	Winner     *string `json:"winner"`
+	GameEndsAt int     `json:"gameEndsAt"`
 }
 
 type Actions int
@@ -340,23 +341,34 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		_ = serverChannel.Publish(ctx, PlayerCheckedBox.String(), string(announcement))
 
 		// Check if someone's winning
-		winning := checkWin(ctx)
-		if winning != nil {
+		result, err := gameResult(ctx)
+		if err != nil {
+			log.Printf("Error getting game result: %s\n", err)
+			return
+		}
+		log.Println(result)
+		if result != Undecided {
 			// Change game state
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
 
-			// Announce winner
-			announcement, err := json.Marshal(WinnerAnnouncement{
-				Winner:     *winning,
+			// Announce game result
+			var winnerClientId *string // If the game is draw, the winnerClientId will be nil
+			if result == HostWin {
+				winnerClientId = room.Host
+			} else if result == GuestWin {
+				winnerClientId = room.Guest
+			}
+			announcement, err := json.Marshal(GameResultAnnouncement{
+				Winner:     winnerClientId,
 				GameEndsAt: gameEndsAt,
 			})
 			if err != nil {
 				log.Printf("Error marshalling winner announcement: %s\n", err)
 				return
 			}
-			_ = serverChannel.Publish(ctx, Winner.String(), string(announcement))
+			_ = serverChannel.Publish(ctx, GameResultAnnounce.String(), string(announcement))
 			return
 		}
 
@@ -370,33 +382,59 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	}
 }
 
-// checkWin returns the winner, either "host" or "guest"
-func checkWin(ctx context.Context) *string {
+type GameResult int
+
+const (
+	Undecided GameResult = iota
+	HostWin
+	GuestWin
+	Draw
+)
+
+func gameResultBasedOnString(hostOrGuest string) (GameResult, error) {
+	if hostOrGuest == "host" {
+		return HostWin, nil
+	}
+	if hostOrGuest == "guest" {
+		return GuestWin, nil
+	}
+	return Undecided, fmt.Errorf("hostOrGuest is not 'host' or 'guest'. Value: %s", hostOrGuest)
+}
+
+// gameResult returns the game result.
+func gameResult(ctx context.Context) (GameResult, error) {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	board := room.Data.Board
+
 	if board[0] != nil && board[1] != nil && board[2] != nil && *board[0] == *board[1] && *board[1] == *board[2] {
-		return board[0]
+		return gameResultBasedOnString(*board[0])
 	}
 	if board[3] != nil && board[4] != nil && board[5] != nil && *board[3] == *board[4] && *board[4] == *board[5] {
-		return board[3]
+		return gameResultBasedOnString(*board[3])
 	}
 	if board[6] != nil && board[7] != nil && board[8] != nil && *board[6] == *board[7] && *board[7] == *board[8] {
-		return board[6]
+		return gameResultBasedOnString(*board[6])
 	}
 	if board[0] != nil && board[3] != nil && board[6] != nil && *board[0] == *board[3] && *board[3] == *board[6] {
-		return board[0]
+		return gameResultBasedOnString(*board[0])
 	}
 	if board[1] != nil && board[4] != nil && board[7] != nil && *board[1] == *board[4] && *board[4] == *board[7] {
-		return board[1]
+		return gameResultBasedOnString(*board[1])
 	}
 	if board[2] != nil && board[5] != nil && board[8] != nil && *board[2] == *board[5] && *board[5] == *board[8] {
-		return board[2]
+		return gameResultBasedOnString(*board[2])
 	}
 	if board[0] != nil && board[4] != nil && board[8] != nil && *board[0] == *board[4] && *board[4] == *board[8] {
-		return board[0]
+		return gameResultBasedOnString(*board[0])
 	}
 	if board[2] != nil && board[4] != nil && board[6] != nil && *board[2] == *board[4] && *board[4] == *board[6] {
-		return board[2]
+		return gameResultBasedOnString(*board[2])
 	}
-	return nil
+
+	// Check if draw
+	if board[0] != nil && board[1] != nil && board[2] != nil && board[3] != nil && board[4] != nil && board[5] != nil && board[6] != nil && board[7] != nil && board[8] != nil {
+		return Draw, nil
+	}
+
+	return Undecided, nil
 }
