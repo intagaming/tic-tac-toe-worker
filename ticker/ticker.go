@@ -106,9 +106,6 @@ func tryTick(ctx context.Context) {
 		unixSeconds := int64(candidate.Score / 1e6)
 		unixNano := int64((candidate.Score/1e6 - float64(unixSeconds)) * 1e9)
 		unix := time.Unix(unixSeconds, unixNano)
-		if err != nil {
-			panic(err)
-		}
 		if !time.Now().After(unix) {
 			log.Println("Not yet need to tick, relaxing half a tick or until the task is due")
 			// Sleep min(half a tick, time until the task is due)
@@ -137,7 +134,8 @@ func tryTick(ctx context.Context) {
 		mutexname := "tick:" + candidate.Member.(string)
 		mutex := rs.NewMutex(mutexname)
 		if err := mutex.Lock(); err != nil {
-			panic(err)
+			log.Println("Error acquiring lock: ", err)
+			continue // Retry
 		}
 
 		// After acquiring the lock, check if the task has been processed by another ticker. Happens if the task's time
@@ -146,10 +144,14 @@ func tryTick(ctx context.Context) {
 		// Also, if the task is deleted by the worker, the following command will error, and we would skip.
 		scoreCheck, err := rdb.ZScore(ctx, "tickingRooms", candidate.Member.(string)).Result()
 		if err != nil {
-			panic(err)
+			log.Println("Error getting score: ", err)
+			// TODO: release lock
+			// Retry immediately
+			continue
 		}
 		if scoreCheck != candidate.Score {
 			log.Println("Room " + candidate.Member.(string) + " has already been processed by another ticker")
+			// TODO: release lock
 			// Retry immediately
 			continue
 		}
@@ -157,7 +159,9 @@ func tryTick(ctx context.Context) {
 		roomId := candidate.Member.(string)
 		tickCtx, err := shared.WithRoom(ctx, roomId)
 		if err != nil {
-			panic(err)
+			// TODO: release lock
+			// Retry immediately
+			continue
 		}
 		tickCtx = shared.WithServerChannelFromRoomCtx(tickCtx)
 		willTickMore := tick(tickCtx, roomId)
@@ -177,7 +181,8 @@ func tryTick(ctx context.Context) {
 
 		log.Println("Releasing lock")
 		if ok, err := mutex.Unlock(); !ok || err != nil {
-			panic("unlock failed")
+			log.Println("Error releasing lock: ", err)
+			continue
 		}
 
 		timeElapsed := time.Now().Sub(startTime)
