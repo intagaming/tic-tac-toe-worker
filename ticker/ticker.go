@@ -2,11 +2,14 @@ package ticker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
+	"hxann.com/tic-tac-toe-worker/shared"
+	"hxann.com/tic-tac-toe-worker/worker"
 	"log"
 	"os"
 	"time"
@@ -151,14 +154,26 @@ func tryTick(ctx context.Context) {
 			continue
 		}
 
-		tick(ctx, candidate.Member.(string))
+		roomId := candidate.Member.(string)
+		tickCtx, err := shared.WithRoom(ctx, roomId)
+		if err != nil {
+			panic(err)
+		}
+		tickCtx = shared.WithServerChannelFromRoomCtx(tickCtx)
+		willTickMore := tick(tickCtx, roomId)
 
-		// Set room score to the next tick time
-		nextTickTime := unix.Add(TickTime)
-		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
-			Score:  float64(nextTickTime.UnixMicro()),
-			Member: candidate.Member,
-		})
+		var nextTickTime time.Time
+		if !willTickMore {
+			// Remove the room from the tickingRooms list
+			rdb.ZRem(ctx, "tickingRooms", roomId)
+		} else {
+			// Schedule next tick
+			nextTickTime = unix.Add(TickTime)
+			rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
+				Score:  float64(nextTickTime.UnixMicro()),
+				Member: candidate.Member,
+			})
+		}
 
 		log.Println("Releasing lock")
 		if ok, err := mutex.Unlock(); !ok || err != nil {
@@ -167,7 +182,7 @@ func tryTick(ctx context.Context) {
 
 		timeElapsed := time.Now().Sub(startTime)
 		log.Println("Time elapsed for room: ", candidate.Member, ": ", timeElapsed)
-		if time.Now().After(nextTickTime) {
+		if willTickMore && time.Now().After(nextTickTime) {
 			log.Println("Room ", candidate.Member, " is late. Don't delay! Tick today.")
 			return
 		}
@@ -195,7 +210,6 @@ func idleHalfTick(ctx context.Context) {
 		ticker.idleHalfTicks += 1
 		ticker.sleepUntil = time.Now().Add(TickTime / 2)
 	}
-	log.Println("testing", ticker.idleHalfTicks)
 }
 
 func idleOff(ctx context.Context) {
@@ -211,13 +225,44 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 	ticker.sleepUntil = sleepUntil
 }
 
-func tick(ctx context.Context, roomId string) {
+// tick function ticks a room and returns whether the room will tick again.
+func tick(ctx context.Context, roomId string) bool {
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
+
 	log.Println("Ticking room: " + roomId)
 	log.Println("Simulating 0.2tick tick time for room: ", roomId)
 	time.Sleep(TickTime / 10 * 2)
 
-	// TODO: get room
+	// Check if the room is past gameEndsAt
+	if room.Data.GameEndsAt != -1 {
+		gameEndsAt := time.Unix(int64(room.Data.GameEndsAt), 0)
+		if time.Now().After(gameEndsAt) {
+			// Ends the game
+			// Reset the room state to waiting
+			room.State = "waiting"
+			room.Data = shared.TicTacToeData{
+				Ticks:      0,
+				Board:      []*string{nil, nil, nil, nil, nil, nil, nil, nil, nil},
+				Turn:       "host",
+				TurnEndsAt: -1,
+				GameEndsAt: -1,
+			}
+			roomJson, err := json.Marshal(room)
+			if err != nil {
+				panic(err)
+			}
+			rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$", string(roomJson))
 
-	// TODO: check if the room is past gameEndsAt
+			// Announce the game ended and room state
+			serverChannel.Publish(ctx, worker.GAME_FINISHED.String(), "")
+			return false
+		}
+		return true
+	}
 
+	// TODO: Turn timer
+
+	return true
 }

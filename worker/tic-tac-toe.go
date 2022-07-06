@@ -25,11 +25,12 @@ const (
 	CLIENT_LEFT
 	PLAYER_CHECKED_BOX
 	WINNER
-	GAME_ENDED
+	GAME_FINISHING
+	GAME_FINISHED
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "WINNER", "GAME_ENDED"}[a]
+	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "WINNER", "GAME_FINISHING", "GAME_FINISHED"}[a]
 }
 
 type CheckedBoxAnnouncement struct {
@@ -53,14 +54,6 @@ func (a Actions) String() string {
 	return [...]string{"START_GAME", "LEAVE_ROOM", "CHECK_BOX"}[a]
 }
 
-type serverChannelCtxKey struct{}
-
-func withServerChannel(ctx context.Context, channel string) context.Context {
-	ablyClient := ctx.Value(shared.AblyCtxKey{}).(*ably.Realtime)
-	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
-	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
-}
-
 func roomIdFromControlChannel(channel string) string {
 	return strings.Replace(channel, "control:", "", 1)
 }
@@ -71,7 +64,7 @@ func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	channel := presenceMsg.Channel
 	if strings.HasPrefix(channel, "control:") {
-		ctx = withServerChannel(ctx, channel)
+		ctx = shared.WithServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
@@ -87,7 +80,7 @@ func onLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	channel := presenceMsg.Channel
 	if strings.HasPrefix(channel, "control:") {
-		ctx = withServerChannel(ctx, channel)
+		ctx = shared.WithServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
@@ -103,7 +96,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -200,7 +193,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	// serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// The client has some time to join the room again. The due time is before the
 	// time the room expires minus 10 seconds. The 10 seconds is the wiggle-room,
@@ -220,7 +213,7 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 
 	channel := messageMessage.Channel
 	if strings.HasPrefix(channel, "control:") {
-		ctx = withServerChannel(ctx, channel)
+		ctx = shared.WithServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
@@ -235,7 +228,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	// channel := messageMessage.Channel
 	clientId := msg.ClientId
 	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	switch msg.Name {
@@ -276,7 +269,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		if room.State == "playing" {
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			serverChannel.Publish(ctx, GAME_ENDED.String(), strconv.Itoa(gameEndsAt))
+			serverChannel.Publish(ctx, GAME_FINISHING.String(), strconv.Itoa(gameEndsAt))
 		}
 
 		expireRoomIfNecessary(ctx, room, clientToRemove)

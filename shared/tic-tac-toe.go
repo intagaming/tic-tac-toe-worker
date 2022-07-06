@@ -13,5 +13,7 @@ type TicTacToeData struct {
 	Board      []*string `json:"board"`
 	Turn       string    `json:"turn"`
 	TurnEndsAt int       `json:"turnEndsAt"`
-	GameEndsAt int       `json:"gameEndsAt"`
+
+	// GameEndsAt is in Unix seconds.
+	GameEndsAt int `json:"gameEndsAt"`
 }

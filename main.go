@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
-	ctx_keys "hxann.com/tic-tac-toe-worker/shared"
+	"hxann.com/tic-tac-toe-worker/shared"
 	"hxann.com/tic-tac-toe-worker/ticker"
 	"log"
 	"os"
@@ -30,7 +30,7 @@ func main() {
 		panic(err)
 	}
 	redisClient := redis.NewClient(opt)
-	ctx = context.WithValue(ctx, ctx_keys.RedisCtxKey{}, redisClient)
+	gCtx = context.WithValue(gCtx, shared.RedisCtxKey{}, redisClient)
 
 	// Ably
 	ablyApiKey := os.Getenv("ABLY_API_KEY")
@@ -38,7 +38,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	ctx = context.WithValue(ctx, ctx_keys.AblyCtxKey{}, ablyClient)
+	gCtx = context.WithValue(gCtx, shared.AblyCtxKey{}, ablyClient)
 
 	// Worker listening for messages on the queue
 	g.Go(worker.New(gCtx))

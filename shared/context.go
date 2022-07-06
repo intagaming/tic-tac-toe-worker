@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
+	"strings"
 )
 
 type RedisCtxKey struct{}
@@ -28,4 +30,19 @@ func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val.(string))
 	}
 	return context.WithValue(ctx, RoomCtxKey{}, &data[0]), err
+}
+
+type ServerChannelCtxKey struct{}
+
+func WithServerChannelFromChannel(ctx context.Context, channel string) context.Context {
+	ablyClient := ctx.Value(AblyCtxKey{}).(*ably.Realtime)
+	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
+	return context.WithValue(ctx, ServerChannelCtxKey{}, serverChannel)
+}
+
+func WithServerChannelFromRoomCtx(ctx context.Context) context.Context {
+	ablyClient := ctx.Value(AblyCtxKey{}).(*ably.Realtime)
+	room := ctx.Value(RoomCtxKey{}).(*Room)
+	serverChannel := ablyClient.Channels.Get("server:" + room.Id)
+	return context.WithValue(ctx, ServerChannelCtxKey{}, serverChannel)
 }
