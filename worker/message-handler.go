@@ -65,16 +65,15 @@ func unmarshalMessage(payload []byte) (*MessageMessage, error) {
 }
 
 func handle(ctx context.Context, payload []byte) {
-	json := string(payload)
-	// log.Println(json)
-	if strings.Contains(json, "channel.presence") {
+	payloadString := string(payload)
+	if strings.Contains(payloadString, "channel.presence") {
 		msg, err := unmarshalPresence(payload)
 		if err != nil {
 			log.Println("Error unmarshalling presence message: ", err)
 			return
 		}
 		handlePresence(ctx, msg)
-	} else if strings.Contains(json, "channel.message") {
+	} else if strings.Contains(payloadString, "channel.message") {
 		msg, err := unmarshalMessage(payload)
 		if err != nil {
 			log.Println("Error unmarshalling message: ", err)
@@ -82,13 +81,12 @@ func handle(ctx context.Context, payload []byte) {
 		}
 		handleMessage(ctx, msg)
 	} else {
-		log.Println("Unknown message: ", json)
+		log.Println("Unknown message: ", payloadString)
 	}
 }
 
 func handlePresence(ctx context.Context, presenceMsg *PresenceMessage) {
 	msg := presenceMsg.Presence[0]
-	// log.Println("Handling presence: ", msg)
 	switch msg.Action {
 	case int(ably.PresenceActionEnter):
 		onEnter(ctx, presenceMsg)

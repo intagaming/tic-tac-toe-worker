@@ -18,14 +18,24 @@ func New(ctx context.Context) func() error {
 		if err != nil {
 			log.Panicf("Error connecting to RabbitMQ: %s", err)
 		}
-		defer conn.Close()
+		defer func(conn *amqp.Connection) {
+			err := conn.Close()
+			if err != nil {
+				log.Panicf("Error closing connection: %s", err)
+			}
+		}(conn)
 		log.Println("Connected to Ably queue")
 
 		ch, err := conn.Channel()
 		if err != nil {
 			log.Panicf("Failed to open a channel: %s", err)
 		}
-		defer ch.Close()
+		defer func(ch *amqp.Channel) {
+			err := ch.Close()
+			if err != nil {
+				log.Panicf("Error closing channel: %s", err)
+			}
+		}(ch)
 		log.Println("Opened a channel on the Ably queue connection")
 
 		msgs, err := ch.Consume(

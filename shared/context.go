@@ -19,7 +19,7 @@ func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 	val, err := redisClient.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
 	if err != nil {
 		if err == redis.Nil {
-			return ctx, fmt.Errorf("Room %s not exists", roomId)
+			return ctx, fmt.Errorf("room %s not exists", roomId)
 		}
 		return ctx, fmt.Errorf("error getting room %s: %w", roomId, err)
 	}
