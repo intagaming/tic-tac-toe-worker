@@ -351,7 +351,6 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			log.Printf("Error getting game result: %s\n", err)
 			return
 		}
-		log.Println(result)
 		if result != Undecided {
 			// Change game state
 			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
