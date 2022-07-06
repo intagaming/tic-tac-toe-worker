@@ -27,8 +27,8 @@ type Ticker struct {
 }
 
 const TickTime = 2 * time.Second
-const IdleHalfTicksTrigger = 10       // After this amount of half-tick idling, idle mode will be on.
-const IdleInterval = 10 * time.Second // In idle mode, we will tick every following interval.
+const IdleHalfTicksTrigger = 10      // After this amount of half-tick idling, idle mode will be on.
+const IdleInterval = 5 * time.Second // In idle mode, we will tick every following interval.
 
 func New(ctx context.Context) func() error {
 	return func() error {
