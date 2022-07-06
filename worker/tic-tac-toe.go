@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"hxann.com/tic-tac-toe-worker/shared"
 	"log"
 	"strconv"
@@ -309,7 +308,6 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 		box := boxes[0]
 		if box != nil {
-			log.Println("Box already checked") // TODO: remove
 			return
 		}
 
@@ -322,7 +320,6 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", "\""+checkInto+"\"")
 		// Update the board to use later
 		room.Data.Board[boxToCheck] = &checkInto
-		fmt.Printf("%v\n", room.Data.Board)
 
 		announcement, err := json.Marshal(CheckedBoxAnnouncement{
 			HostOrGuest: checkInto,
@@ -336,9 +333,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 		// Check if someone's winning
 		winning := checkWin(ctx)
-		log.Println(winning)
 		if winning != nil {
-			log.Println(*winning)
 			// Change game state
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
@@ -371,7 +366,6 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 func checkWin(ctx context.Context) *string {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	board := room.Data.Board
-	fmt.Printf("%v\n", board)
 	if board[0] != nil && board[1] != nil && board[2] != nil && *board[0] == *board[1] && *board[1] == *board[2] {
 		return board[0]
 	}
@@ -396,6 +390,5 @@ func checkWin(ctx context.Context) *string {
 	if board[2] != nil && board[4] != nil && board[6] != nil && *board[2] == *board[4] && *board[4] == *board[6] {
 		return board[2]
 	}
-	log.Println("returning nil")
 	return nil
 }
