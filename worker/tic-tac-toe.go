@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	ctx_keys "hxann.com/tic-tac-toe-worker/shared"
+	"hxann.com/tic-tac-toe-worker/shared"
 	"log"
 	"strconv"
 	"strings"
@@ -15,22 +15,6 @@ import (
 )
 
 const RoomTimeoutTime = 1 * time.Minute
-
-type Room struct {
-	Id    string        `json:"id"`
-	Host  *string       `json:"host"`
-	State string        `json:"state"`
-	Guest *string       `json:"guest"`
-	Data  TicTacToeData `json:"data"`
-}
-
-type TicTacToeData struct {
-	Ticks      int       `json:"ticks"`
-	Board      []*string `json:"board"`
-	Turn       string    `json:"turn"`
-	TurnEndsAt int       `json:"turnEndsAt"`
-	GameEndsAt int       `json:"gameEndsAt"`
-}
 
 type Announcers int
 
@@ -72,29 +56,9 @@ func (a Actions) String() string {
 type serverChannelCtxKey struct{}
 
 func withServerChannel(ctx context.Context, channel string) context.Context {
-	ablyClient := ctx.Value(ctx_keys.AblyCtxKey{}).(*ably.Realtime)
+	ablyClient := ctx.Value(shared.AblyCtxKey{}).(*ably.Realtime)
 	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
 	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
-}
-
-type roomCtxKey struct{}
-
-func withRoom(ctx context.Context, roomId string) (context.Context, error) {
-	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
-	val, err := redisClient.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
-	if err != nil {
-		if err == redis.Nil {
-			return ctx, fmt.Errorf("Room %s not exists", roomId)
-		}
-		return ctx, fmt.Errorf("error getting room %s: %w", roomId, err)
-	}
-
-	var data []Room
-	err = json.Unmarshal([]byte(val.(string)), &data)
-	if err != nil {
-		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val.(string))
-	}
-	return context.WithValue(ctx, roomCtxKey{}, &data[0]), err
 }
 
 func roomIdFromControlChannel(channel string) string {
@@ -108,7 +72,7 @@ func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	channel := presenceMsg.Channel
 	if strings.HasPrefix(channel, "control:") {
 		ctx = withServerChannel(ctx, channel)
-		ctx, err := withRoom(ctx, roomIdFromControlChannel(channel))
+		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
 			return
@@ -124,7 +88,7 @@ func onLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	channel := presenceMsg.Channel
 	if strings.HasPrefix(channel, "control:") {
 		ctx = withServerChannel(ctx, channel)
-		ctx, err := withRoom(ctx, roomIdFromControlChannel(channel))
+		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
 			return
@@ -138,10 +102,10 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	channel := presenceMsg.Channel
 	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
-	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
-	room := ctx.Value(roomCtxKey{}).(*Room)
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	if room.Host == nil { // If no host set
 		// Set as host
@@ -203,8 +167,8 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
 }
 
-func expireRoomIfNecessary(ctx context.Context, room *Room, leftClientId string) {
-	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
+func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId string) {
+	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 
 	// Set expiration for the room if all clients have left
 	var toCheck *string
@@ -235,7 +199,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// channel := presenceMsg.Channel
 	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
-	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// The client has some time to join the room again. The due time is before the
@@ -245,7 +209,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// establishes connection.
 	redisClient.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
 
-	room := ctx.Value(roomCtxKey{}).(*Room)
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	expireRoomIfNecessary(ctx, room, clientId)
 }
@@ -257,7 +221,7 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 	channel := messageMessage.Channel
 	if strings.HasPrefix(channel, "control:") {
 		ctx = withServerChannel(ctx, channel)
-		ctx, err := withRoom(ctx, roomIdFromControlChannel(channel))
+		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
 			return
@@ -270,9 +234,9 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	msg := messageMessage.Messages[0]
 	// channel := messageMessage.Channel
 	clientId := msg.ClientId
-	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
-	room := ctx.Value(roomCtxKey{}).(*Room)
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	switch msg.Name {
 	case START_GAME.String():
@@ -412,7 +376,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 // checkWin returns the winner, either "host" or "guest"
 func checkWin(ctx context.Context) *string {
-	room := ctx.Value(roomCtxKey{}).(*Room)
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	board := room.Data.Board
 	fmt.Printf("%v\n", board)
 	if board[0] != nil && board[1] != nil && board[2] != nil && *board[0] == *board[1] && *board[1] == *board[2] {
