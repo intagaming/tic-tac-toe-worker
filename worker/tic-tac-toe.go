@@ -18,14 +18,14 @@ const RoomTimeoutTime = 1 * time.Minute
 type Announcers int
 
 const (
-	HOST_CHANGE Announcers = iota
-	ROOM_STATE
-	GAME_STARTS_NOW
-	CLIENT_LEFT
-	PLAYER_CHECKED_BOX
-	WINNER
-	GAME_FINISHING
-	GAME_FINISHED
+	HostChange Announcers = iota
+	RoomState
+	GameStartsNow
+	ClientLeft
+	PlayerCheckedBox
+	Winner
+	GameFinishing
+	GameFinished
 )
 
 func (a Announcers) String() string {
@@ -44,9 +44,9 @@ type WinnerAnnouncement struct {
 type Actions int
 
 const (
-	START_GAME Actions = iota
-	LEAVE_ROOM
-	CHECK_BOX
+	StartGame Actions = iota
+	LeaveRoom
+	CheckBox
 )
 
 func (a Actions) String() string {
@@ -115,7 +115,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 			log.Printf("Error marshalling room: %s\n", err)
 			return
 		}
-		_ = serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
+		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 		return
 	} else if *room.Host != clientId && room.Guest == nil { // If not the host and no guest set
 		// Set as guest
@@ -132,7 +132,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 			log.Printf("Error marshalling room: %s\n", err)
 			return
 		}
-		_ = serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
+		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 		return
 	} else if *room.Host == clientId || *room.Guest == clientId { // If re-joining
 		// Persists the client's roomId
@@ -146,7 +146,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 			log.Printf("Error marshalling room: %s\n", err)
 			return
 		}
-		_ = serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
+		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 	}
 
 	// TODO: do something when the room is full
@@ -156,7 +156,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		log.Printf("Error marshalling room: %s\n", err)
 		return
 	}
-	_ = serverChannel.Publish(ctx, ROOM_STATE.String(), string(roomJson))
+	_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 }
 
 func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId string) {
@@ -231,7 +231,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	switch msg.Name {
-	case START_GAME.String():
+	case StartGame.String():
 		if room.State != "waiting" || room.Host == nil || room.Guest == nil || *room.Host != msg.ClientId {
 			return
 		}
@@ -253,8 +253,8 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			return
 		}
 
-		_ = serverChannel.Publish(ctx, GAME_STARTS_NOW.String(), string(roomJson))
-	case LEAVE_ROOM.String():
+		_ = serverChannel.Publish(ctx, GameStartsNow.String(), string(roomJson))
+	case LeaveRoom.String():
 		// Remove player from room
 		clientToRemove := msg.Data
 		if room.Host != nil && *room.Host == clientToRemove {
@@ -262,17 +262,17 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		} else if room.Guest != nil && *room.Guest == clientToRemove {
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
 		}
-		_ = serverChannel.Publish(ctx, CLIENT_LEFT.String(), clientToRemove)
+		_ = serverChannel.Publish(ctx, ClientLeft.String(), clientToRemove)
 
 		// End the game
 		if room.State == "playing" {
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			_ = serverChannel.Publish(ctx, GAME_FINISHING.String(), strconv.Itoa(gameEndsAt))
+			_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
 		}
 
 		expireRoomIfNecessary(ctx, room, clientToRemove)
-	case CHECK_BOX.String():
+	case CheckBox.String():
 		boxToCheck, err := strconv.Atoi(msg.Data)
 		if err != nil {
 			log.Printf("Error parsing box to check: %s\n", err)
@@ -329,7 +329,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			log.Printf("Error marshalling announcement: %s\n", err)
 			return
 		}
-		_ = serverChannel.Publish(ctx, PLAYER_CHECKED_BOX.String(), string(announcement))
+		_ = serverChannel.Publish(ctx, PlayerCheckedBox.String(), string(announcement))
 
 		// Check if someone's winning
 		winning := checkWin(ctx)
@@ -348,7 +348,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 				log.Printf("Error marshalling winner announcement: %s\n", err)
 				return
 			}
-			_ = serverChannel.Publish(ctx, WINNER.String(), string(announcement))
+			_ = serverChannel.Publish(ctx, Winner.String(), string(announcement))
 			return
 		}
 

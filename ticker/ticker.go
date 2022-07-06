@@ -256,7 +256,7 @@ func tick(ctx context.Context, roomId string) bool {
 			rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$", string(roomJson))
 
 			// Announce the game ended and room state
-			_ = serverChannel.Publish(ctx, worker.GAME_FINISHED.String(), "")
+			_ = serverChannel.Publish(ctx, worker.GameFinished.String(), "")
 			return false
 		}
 		return true
