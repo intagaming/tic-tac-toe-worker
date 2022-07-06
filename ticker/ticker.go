@@ -232,8 +232,6 @@ func tick(ctx context.Context, roomId string) bool {
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	log.Println("Ticking room: " + roomId)
-	log.Println("Simulating 0.2tick tick time for room: ", roomId)
-	time.Sleep(TickTime / 10 * 2)
 
 	// Check if the room is past gameEndsAt
 	if room.Data.GameEndsAt != -1 {
