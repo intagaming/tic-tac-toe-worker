@@ -6,13 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/ably/ably-go/ably"
-	"github.com/go-redis/redis/v8"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
-
-type redisCtxKey struct{}
-type ablyCtxKey struct{}
 
 func New(ctx context.Context) func() error {
 	return func() error {
@@ -46,21 +41,6 @@ func New(ctx context.Context) func() error {
 			log.Panicf("Failed to consume messages: %s", err)
 		}
 		log.Println("Listening for messages on queue")
-
-		// Redis
-		opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
-		if err != nil {
-			panic(err)
-		}
-		redisClient := redis.NewClient(opt)
-		ctx = context.WithValue(ctx, redisCtxKey{}, redisClient)
-
-		// Ably
-		ablyClient, err := ably.NewRealtime(ably.WithKey(ablyApiKey))
-		if err != nil {
-			panic(err)
-		}
-		ctx = context.WithValue(ctx, ablyCtxKey{}, ablyClient)
 
 		for {
 			select {

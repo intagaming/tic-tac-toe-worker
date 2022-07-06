@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	ctx_keys "hxann.com/tic-tac-toe-worker/ctx-keys"
 	"log"
 	"strconv"
 	"strings"
@@ -71,7 +72,7 @@ func (a Actions) String() string {
 type serverChannelCtxKey struct{}
 
 func withServerChannel(ctx context.Context, channel string) context.Context {
-	ablyClient := ctx.Value(ablyCtxKey{}).(*ably.Realtime)
+	ablyClient := ctx.Value(ctx_keys.AblyCtxKey{}).(*ably.Realtime)
 	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
 	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
 }
@@ -79,7 +80,7 @@ func withServerChannel(ctx context.Context, channel string) context.Context {
 type roomCtxKey struct{}
 
 func withRoom(ctx context.Context, roomId string) (context.Context, error) {
-	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
 	val, err := redisClient.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -137,7 +138,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	channel := presenceMsg.Channel
 	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
-	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	room := ctx.Value(roomCtxKey{}).(*Room)
@@ -203,7 +204,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 }
 
 func expireRoomIfNecessary(ctx context.Context, room *Room, leftClientId string) {
-	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
 
 	// Set expiration for the room if all clients have left
 	var toCheck *string
@@ -234,7 +235,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// channel := presenceMsg.Channel
 	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
-	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// The client has some time to join the room again. The due time is before the
@@ -269,7 +270,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	msg := messageMessage.Messages[0]
 	// channel := messageMessage.Channel
 	clientId := msg.ClientId
-	redisClient := ctx.Value(redisCtxKey{}).(*redis.Client)
+	redisClient := ctx.Value(ctx_keys.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(roomCtxKey{}).(*Room)
 

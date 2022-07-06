@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"github.com/ably/ably-go/ably"
+	"github.com/go-redis/redis/v8"
+	ctx_keys "hxann.com/tic-tac-toe-worker/ctx-keys"
 	"hxann.com/tic-tac-toe-worker/ticker"
 	"log"
 	"os"
@@ -21,11 +24,21 @@ func main() {
 
 	g, gCtx := errgroup.WithContext(ctx)
 
-	// client, err := ably.NewRealtime(ably.WithKey(""))
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// channel := client.Channels.Get("")
+	// Redis
+	opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
+	if err != nil {
+		panic(err)
+	}
+	redisClient := redis.NewClient(opt)
+	ctx = context.WithValue(ctx, ctx_keys.RedisCtxKey{}, redisClient)
+
+	// Ably
+	ablyApiKey := os.Getenv("ABLY_API_KEY")
+	ablyClient, err := ably.NewRealtime(ably.WithKey(ablyApiKey))
+	if err != nil {
+		panic(err)
+	}
+	ctx = context.WithValue(ctx, ctx_keys.AblyCtxKey{}, ablyClient)
 
 	// Worker listening for messages on the queue
 	g.Go(worker.New(gCtx))
@@ -33,7 +46,7 @@ func main() {
 	// New ticker
 	g.Go(ticker.New(gCtx))
 
-	err := g.Wait()
+	err = g.Wait()
 	if err != nil {
 		log.Println("Error group: ", err)
 	}
