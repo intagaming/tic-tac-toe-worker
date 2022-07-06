@@ -76,8 +76,6 @@ func New(ctx context.Context) func() error {
 func tryTick(ctx context.Context) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
 
-	log.Println("--- Trying to find something to tick")
-
 	rdb := ctx.Value(redisCtxKey{}).(*redis.Client)
 	rs := ctx.Value(redsyncCtxKey{}).(*redsync.Redsync)
 
@@ -95,7 +93,6 @@ func tryTick(ctx context.Context) {
 			return
 		}
 		if len(zs) == 0 {
-			log.Println("No tasks in the queue")
 			// Sleep half a tick because we're not very busy
 			idleHalfTick(ctx)
 			return
@@ -107,7 +104,6 @@ func tryTick(ctx context.Context) {
 		unixNano := int64((candidate.Score/1e6 - float64(unixSeconds)) * 1e9)
 		unix := time.Unix(unixSeconds, unixNano)
 		if !time.Now().After(unix) {
-			log.Println("Not yet need to tick, relaxing half a tick or until the task is due")
 			// Sleep min(half a tick, time until the task is due)
 			if unix.Sub(time.Now()) < TickTime/2 { // If the task is due soon
 				if ticker.idle {
@@ -129,7 +125,6 @@ func tryTick(ctx context.Context) {
 			ticker.idleHalfTicks = 0
 		}
 
-		log.Println("Acquiring lock for room: ", candidate.Member)
 		// Try to acquire lock on the room
 		mutexname := "tick:" + candidate.Member.(string)
 		mutex := rs.NewMutex(mutexname)
@@ -179,21 +174,18 @@ func tryTick(ctx context.Context) {
 			})
 		}
 
-		log.Println("Releasing lock")
 		if ok, err := mutex.Unlock(); !ok || err != nil {
 			log.Println("Error releasing lock: ", err)
 			continue
 		}
 
 		timeElapsed := time.Now().Sub(startTime)
-		log.Println("Time elapsed for room: ", candidate.Member, ": ", timeElapsed)
 		if willTickMore && time.Now().After(nextTickTime) {
 			log.Println("Room ", candidate.Member, " is late. Don't delay! Tick today.")
 			return
 		}
 		if timeElapsed < TickTime/2 {
 			// We only do one ticking every half a tick, so we need to sleep for the remaining time
-			log.Println("Doing task for shorter than half a tick, sleeping for ", TickTime/2-timeElapsed)
 			ticker.sleepUntil = time.Now().Add(TickTime/2 - timeElapsed)
 		}
 		return
@@ -235,8 +227,6 @@ func tick(ctx context.Context, roomId string) bool {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
-
-	log.Println("Ticking room: " + roomId)
 
 	// Check if the room is past gameEndsAt
 	if room.Data.GameEndsAt != -1 {
