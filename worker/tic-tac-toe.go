@@ -368,6 +368,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 				log.Printf("Error marshalling winner announcement: %s\n", err)
 				return
 			}
+			_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
 			_ = serverChannel.Publish(ctx, GameResultAnnounce.String(), string(announcement))
 			return
 		}
