@@ -95,7 +95,7 @@ func tryTick(ctx context.Context) {
 			return
 		}
 		if len(zs) == 0 {
-			log.Println("No tasks in the queue, sleeping half a tick")
+			log.Println("No tasks in the queue")
 			// Sleep half a tick because we're not very busy
 			idleHalfTick(ctx)
 			return
