@@ -29,8 +29,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	redisClient := redis.NewClient(opt)
-	gCtx = context.WithValue(gCtx, shared.RedisCtxKey{}, redisClient)
+	rdb := redis.NewClient(opt)
+	gCtx = context.WithValue(gCtx, shared.RedisCtxKey{}, rdb)
 
 	// Ably
 	ablyApiKey := os.Getenv("ABLY_API_KEY")

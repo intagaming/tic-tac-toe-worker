@@ -95,7 +95,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	channel := presenceMsg.Channel
 	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
-	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
@@ -103,11 +103,11 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	if room.Host == nil { // If no host set
 		// Set as host
 		// TODO: fix race condition when we're setting the host but someone else joins first and became the host?
-		redisClient.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+clientId+"\"")
+		rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+clientId+"\"")
 		// Persists the client's roomId
-		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+		rdb.Set(ctx, "client:"+clientId, roomId, 0)
 		// Persists the room
-		redisClient.Persist(ctx, "room:"+roomId)
+		rdb.Persist(ctx, "room:"+roomId)
 		room.Host = &clientId
 
 		// Send the room state
@@ -120,11 +120,11 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		return
 	} else if *room.Host != clientId && room.Guest == nil { // If not the host and no guest set
 		// Set as guest
-		redisClient.Do(ctx, "JSON.SET", "room:"+roomId, "$.guest", "\""+clientId+"\"")
+		rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$.guest", "\""+clientId+"\"")
 		// Persists the client's roomId
-		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+		rdb.Set(ctx, "client:"+clientId, roomId, 0)
 		// Persists the room
-		redisClient.Persist(ctx, "room:"+roomId)
+		rdb.Persist(ctx, "room:"+roomId)
 		room.Guest = &clientId
 
 		// Send the room state
@@ -137,9 +137,9 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		return
 	} else if *room.Host == clientId || *room.Guest == clientId { // If re-joining
 		// Persists the client's roomId
-		redisClient.Set(ctx, "client:"+clientId, roomId, 0)
+		rdb.Set(ctx, "client:"+clientId, roomId, 0)
 		// Persists the room
-		redisClient.Persist(ctx, "room:"+roomId)
+		rdb.Persist(ctx, "room:"+roomId)
 
 		// Send the room state
 		roomJson, err := json.Marshal(room)
@@ -161,7 +161,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 }
 
 func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId string) {
-	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 
 	// Set expiration for the room if all clients have left
 	var toCheck *string
@@ -173,9 +173,9 @@ func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId 
 		return
 	}
 	if toCheck == nil { // If there's no one left, expire the room
-		redisClient.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
+		rdb.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 	} else {
-		pipe := redisClient.Pipeline()
+		pipe := rdb.Pipeline()
 		ttl := pipe.TTL(ctx, "client:"+*toCheck)
 		clientRoomId := pipe.Get(ctx, "client:"+*toCheck)
 
@@ -187,7 +187,7 @@ func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId 
 
 		// If the other client is not in the room, or the room they're in is not the room in question, then expire the room.
 		if ttl.Val() != -1 || clientRoomId.Val() != room.Id {
-			redisClient.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
+			rdb.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 		}
 	}
 }
@@ -197,7 +197,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// channel := presenceMsg.Channel
 	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
-	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	// serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// The client has some time to join the room again. The due time is before the
@@ -205,7 +205,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// because if the player joins right at the time that the room is about to
 	// expire, the room might have already expired by the time the player
 	// establishes connection.
-	redisClient.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
+	rdb.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
 
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -232,7 +232,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	msg := messageMessage.Messages[0]
 	// channel := messageMessage.Channel
 	clientId := msg.ClientId
-	redisClient := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -247,11 +247,11 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		turnEndsAt := int(now.Add(30 * time.Second).Unix())
 		room.State = "playing"
 		room.Data.TurnEndsAt = turnEndsAt
-		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"playing\"")
-		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turnEndsAt", strconv.Itoa(turnEndsAt))
+		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"playing\"")
+		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turnEndsAt", strconv.Itoa(turnEndsAt))
 
 		// Add the game to the ticker sorted set
-		redisClient.ZAdd(ctx, "tickingRooms", &redis.Z{Score: float64(now.UnixMicro()), Member: room.Id})
+		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{Score: float64(now.UnixMicro()), Member: room.Id})
 
 		roomJson, err := json.Marshal(room)
 		if err != nil {
@@ -266,22 +266,22 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		if room.Host != nil && *room.Host == clientToRemove {
 			// If we have a guest, make that guest the new host
 			if room.Guest != nil {
-				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "\""+*room.Guest+"\"")
-				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
+				rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "\""+*room.Guest+"\"")
+				rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
 				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
 			} else {
-				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
+				rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
 			}
 		} else if room.Guest != nil && *room.Guest == clientToRemove {
-			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
+			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
 		}
 		_ = serverChannel.Publish(ctx, ClientLeft.String(), clientToRemove)
 
 		// End the game if playing
 		if room.State == "playing" {
-			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
+			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
+			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
 			_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
 		}
 
@@ -309,7 +309,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 
 		// Check if the boxJson is already checked
-		boxJson, err := redisClient.Do(ctx, "JSON.GET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]").Result()
+		boxJson, err := rdb.Do(ctx, "JSON.GET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]").Result()
 		if err != nil {
 			log.Printf("Error getting box: %s\n", err)
 			return
@@ -331,7 +331,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		} else {
 			checkInto = "guest"
 		}
-		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", "\""+checkInto+"\"")
+		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", "\""+checkInto+"\"")
 		// Update the board to use later
 		room.Data.Board[boxToCheck] = &checkInto
 
@@ -354,9 +354,9 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		log.Println(result)
 		if result != Undecided {
 			// Change game state
-			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
+			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
+			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
 
 			// Announce game result
 			var winnerClientId *string // If the game is draw, the winnerClientId will be nil
@@ -384,7 +384,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		} else {
 			nextTurn = "\"host\""
 		}
-		redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turn", nextTurn)
+		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turn", nextTurn)
 	}
 }
 

@@ -15,8 +15,8 @@ type AblyCtxKey struct{}
 type RoomCtxKey struct{}
 
 func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
-	redisClient := ctx.Value(RedisCtxKey{}).(*redis.Client)
-	val, err := redisClient.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
+	rdb := ctx.Value(RedisCtxKey{}).(*redis.Client)
+	val, err := rdb.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
 	if err != nil {
 		if err == redis.Nil {
 			return ctx, fmt.Errorf("room %s not exists", roomId)
