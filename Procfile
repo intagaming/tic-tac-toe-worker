@@ -1,0 +1,1 @@
+worker: bin/tic-tac-toe-worker
