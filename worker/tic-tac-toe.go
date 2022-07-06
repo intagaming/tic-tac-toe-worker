@@ -258,13 +258,19 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		// Remove player from room
 		clientToRemove := msg.Data
 		if room.Host != nil && *room.Host == clientToRemove {
-			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
+			// If we have a guest, make that guest the new host
+			if room.Guest != nil {
+				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "\""+*room.Guest+"\"")
+				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
+			} else {
+				redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
+			}
 		} else if room.Guest != nil && *room.Guest == clientToRemove {
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
 		}
 		_ = serverChannel.Publish(ctx, ClientLeft.String(), clientToRemove)
 
-		// End the game
+		// End the game if playing
 		if room.State == "playing" {
 			redisClient.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
