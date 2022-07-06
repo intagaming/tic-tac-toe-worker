@@ -140,13 +140,17 @@ func tryTick(ctx context.Context) {
 		scoreCheck, err := rdb.ZScore(ctx, "tickingRooms", candidate.Member.(string)).Result()
 		if err != nil {
 			log.Println("Error getting score: ", err)
-			// TODO: release lock
+			if ok, err := mutex.Unlock(); !ok || err != nil {
+				log.Println("Error releasing lock: ", err)
+			}
 			// Retry immediately
 			continue
 		}
 		if scoreCheck != candidate.Score {
 			log.Println("Room " + candidate.Member.(string) + " has already been processed by another ticker")
-			// TODO: release lock
+			if ok, err := mutex.Unlock(); !ok || err != nil {
+				log.Println("Error releasing lock: ", err)
+			}
 			// Retry immediately
 			continue
 		}
@@ -154,7 +158,9 @@ func tryTick(ctx context.Context) {
 		roomId := candidate.Member.(string)
 		tickCtx, err := shared.WithRoom(ctx, roomId)
 		if err != nil {
-			// TODO: release lock
+			if ok, err := mutex.Unlock(); !ok || err != nil {
+				log.Println("Error releasing lock: ", err)
+			}
 			// Retry immediately
 			continue
 		}
