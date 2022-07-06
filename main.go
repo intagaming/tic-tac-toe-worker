@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
-	ctx_keys "hxann.com/tic-tac-toe-worker/ctx-keys"
+	ctx_keys "hxann.com/tic-tac-toe-worker/shared"
 	"hxann.com/tic-tac-toe-worker/ticker"
 	"log"
 	"os"

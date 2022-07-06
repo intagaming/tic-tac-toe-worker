@@ -1,4 +1,4 @@
-package ctx_keys
+package shared
 
 type RedisCtxKey struct{}
 type AblyCtxKey struct{}
