@@ -29,6 +29,10 @@ type Ticker struct {
 const TickTime = 2 * time.Second
 const IdleHalfTicksTrigger = 10      // After this amount of half-tick idling, idle mode will be on.
 const IdleInterval = 5 * time.Second // In idle mode, we will tick every following interval.
+// PushbackTime is the time that the ticker will add into the score of the room while it is processing the room in order
+// to prevent the room from being realized by other tickers. This results in the rooms that need ticking the most having
+// the lowest scores and being realized before the being-processed task.
+const PushbackTime = TickTime * 5
 
 func New(ctx context.Context) func() error {
 	return func() error {
@@ -155,6 +159,13 @@ func tryTick(ctx context.Context) {
 			continue
 		}
 
+		// Push back the task in order to prevent other tickers from realizing it first.
+		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
+			Score:  float64(unix.Add(PushbackTime).UnixMicro()),
+			Member: candidate.Member,
+		})
+
+		// Getting room
 		roomId := candidate.Member.(string)
 		tickCtx, err := shared.WithRoom(ctx, roomId)
 		if err != nil {
@@ -165,6 +176,7 @@ func tryTick(ctx context.Context) {
 			continue
 		}
 		tickCtx = shared.WithServerChannelFromRoomCtx(tickCtx)
+		// Tick
 		willTickMore := tick(tickCtx, roomId)
 
 		var nextTickTime time.Time
