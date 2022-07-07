@@ -180,13 +180,14 @@ func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId 
 		clientRoomId := pipe.Get(ctx, "client:"+*toCheck)
 
 		_, err := pipe.Exec(ctx)
-		if err != nil {
+		if err != nil && err != redis.Nil {
 			log.Printf("Error getting TTL and clientRoomId for client %s: %s\n", *toCheck, err)
 			return
 		}
+		// Even when we didn't find the client, we still expire the room anyway, because the client is nowhere to be found.
 
-		// If the other client is not in the room, or the room they're in is not the room in question, then expire the room.
-		if ttl.Val() != -1 || clientRoomId.Val() != room.Id {
+		// If the other client disappeared, or is not in the room, or the room they're in is not the room in question, then expire the room.
+		if err == redis.Nil || ttl.Val() != -1 || clientRoomId.Val() != room.Id {
 			rdb.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
 		}
 	}
