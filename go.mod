@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/ably/ably-go v1.2.8
 	github.com/go-redis/redis/v8 v8.11.5
+	github.com/go-redsync/redsync/v4 v4.5.1
 	github.com/rabbitmq/amqp091-go v1.3.4
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
 )
@@ -12,7 +13,6 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/go-redsync/redsync/v4 v4.5.1 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.0 // indirect
 	github.com/klauspost/compress v1.15.7 // indirect
