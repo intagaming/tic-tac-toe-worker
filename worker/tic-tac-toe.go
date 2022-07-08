@@ -275,13 +275,14 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		if room.Host != nil && *room.Host == clientToRemove {
 			// If we have a guest, make that guest the new host
 			if room.Guest != nil {
+				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
+
 				room.Host = room.Guest
 				room.Guest = nil
 				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 				if err != nil {
 					panic(err)
 				}
-				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
 			} else {
 				room.Host = nil
 				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
