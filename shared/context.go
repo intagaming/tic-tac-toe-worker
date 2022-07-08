@@ -17,7 +17,7 @@ type RoomCtxKey struct{}
 
 func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 	rdb := ctx.Value(RedisCtxKey{}).(*redis.Client)
-	val, err := rdb.Do(ctx, "JSON.GET", "room:"+roomId, "$").Result()
+	val, err := rdb.Get(ctx, "room:"+roomId).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return ctx, fmt.Errorf("room %s not exists", roomId)
@@ -25,12 +25,12 @@ func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 		return ctx, fmt.Errorf("error getting room %s: %w", roomId, err)
 	}
 
-	var data []Room
-	err = json.Unmarshal([]byte(val.(string)), &data)
+	var data Room
+	err = json.Unmarshal([]byte(val), &data)
 	if err != nil {
-		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val.(string))
+		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val)
 	}
-	return context.WithValue(ctx, RoomCtxKey{}, &data[0]), err
+	return context.WithValue(ctx, RoomCtxKey{}, &data), err
 }
 
 func SaveRoomToRedis(ctx context.Context, expiration time.Duration) error {
