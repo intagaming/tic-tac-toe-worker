@@ -103,11 +103,14 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	if room.Host == nil { // If no host set
 		// Set as host
 		// TODO: fix race condition when we're setting the host but someone else joins first and became the host?
-		rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$.host", "\""+clientId+"\"")
+		room.Host = &clientId
+		// Save, and persist the room
+		err := shared.SaveRoomToRedis(ctx, 0)
+		if err != nil {
+			panic(err)
+		}
 		// Persists the client's roomId
 		rdb.Set(ctx, "client:"+clientId, roomId, 0)
-		// Persists the room
-		rdb.Persist(ctx, "room:"+roomId)
 		room.Host = &clientId
 
 		// Send the room state
@@ -120,11 +123,14 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		return
 	} else if *room.Host != clientId && room.Guest == nil { // If not the host and no guest set
 		// Set as guest
-		rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$.guest", "\""+clientId+"\"")
+		room.Guest = &clientId
+		// Save, and persist the room
+		err := shared.SaveRoomToRedis(ctx, 0)
+		if err != nil {
+			panic(err)
+		}
 		// Persists the client's roomId
 		rdb.Set(ctx, "client:"+clientId, roomId, 0)
-		// Persists the room
-		rdb.Persist(ctx, "room:"+roomId)
 		room.Guest = &clientId
 
 		// Send the room state
@@ -248,8 +254,10 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		turnEndsAt := int(now.Add(30 * time.Second).Unix())
 		room.State = "playing"
 		room.Data.TurnEndsAt = turnEndsAt
-		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"playing\"")
-		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turnEndsAt", strconv.Itoa(turnEndsAt))
+		err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		if err != nil {
+			panic(err)
+		}
 
 		// Add the game to the ticker sorted set
 		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{Score: float64(now.UnixMicro()), Member: room.Id})
@@ -267,22 +275,38 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		if room.Host != nil && *room.Host == clientToRemove {
 			// If we have a guest, make that guest the new host
 			if room.Guest != nil {
-				rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "\""+*room.Guest+"\"")
-				rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
+				room.Host = room.Guest
+				room.Guest = nil
+				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+				if err != nil {
+					panic(err)
+				}
 				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
 			} else {
-				rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.host", "null")
+				room.Host = nil
+				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+				if err != nil {
+					panic(err)
+				}
 			}
 		} else if room.Guest != nil && *room.Guest == clientToRemove {
-			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.guest", "null")
+			room.Guest = nil
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+			if err != nil {
+				panic(err)
+			}
 		}
 		_ = serverChannel.Publish(ctx, ClientLeft.String(), clientToRemove)
 
 		// End the game if playing
 		if room.State == "playing" {
-			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
+			room.State = "finishing"
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
+			room.Data.GameEndsAt = gameEndsAt
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+			if err != nil {
+				panic(err)
+			}
 			_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
 		}
 
@@ -310,18 +334,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 
 		// Check if the boxJson is already checked
-		boxJson, err := rdb.Do(ctx, "JSON.GET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]").Result()
-		if err != nil {
-			log.Printf("Error getting box: %s\n", err)
-			return
-		}
-		var boxes []*string
-		err = json.Unmarshal([]byte(boxJson.(string)), &boxes)
-		if err != nil {
-			log.Printf("Error unmarshalling box: %s\n", err)
-			return
-		}
-		box := boxes[0]
+		box := room.Data.Board[boxToCheck]
 		if box != nil {
 			return
 		}
@@ -332,9 +345,12 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		} else {
 			checkInto = "guest"
 		}
-		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.board["+strconv.Itoa(boxToCheck)+"]", "\""+checkInto+"\"")
-		// Update the board to use later
+		// Update the board
 		room.Data.Board[boxToCheck] = &checkInto
+		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		if err != nil {
+			panic(err)
+		}
 
 		announcement, err := json.Marshal(CheckedBoxAnnouncement{
 			HostOrGuest: checkInto,
@@ -354,9 +370,13 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 		if result != Undecided {
 			// Change game state
-			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.state", "\"finishing\"")
+			room.State = "finishing"
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.gameEndsAt", strconv.Itoa(gameEndsAt))
+			room.Data.GameEndsAt = gameEndsAt
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+			if err != nil {
+				panic(err)
+			}
 
 			// Announce game result
 			var winnerClientId *string // If the game is draw, the winnerClientId will be nil
@@ -384,7 +404,11 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		} else {
 			nextTurn = "\"host\""
 		}
-		rdb.Do(ctx, "JSON.SET", "room:"+room.Id, "$.data.turn", nextTurn)
+		room.Data.Turn = nextTurn
+		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 

@@ -2,7 +2,6 @@ package ticker
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
@@ -177,7 +176,7 @@ func tryTick(ctx context.Context) {
 		}
 		tickCtx = shared.WithServerChannelFromRoomCtx(tickCtx)
 		// Tick
-		willTickMore := tick(tickCtx, roomId)
+		willTickMore := tick(tickCtx)
 
 		var nextTickTime time.Time
 		if !willTickMore {
@@ -241,9 +240,8 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 }
 
 // tick function ticks a room and returns whether the room will tick again.
-func tick(ctx context.Context, roomId string) bool {
+func tick(ctx context.Context) bool {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
-	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// Check if the room is past gameEndsAt
@@ -260,11 +258,10 @@ func tick(ctx context.Context, roomId string) bool {
 				TurnEndsAt: -1,
 				GameEndsAt: -1,
 			}
-			roomJson, err := json.Marshal(room)
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 			if err != nil {
 				panic(err)
 			}
-			rdb.Do(ctx, "JSON.SET", "room:"+roomId, "$", string(roomJson))
 
 			// Announce the game ended and room state
 			_ = serverChannel.Publish(ctx, worker.GameFinished.String(), "")

@@ -7,6 +7,7 @@ import (
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
 	"strings"
+	"time"
 )
 
 type RedisCtxKey struct{}
@@ -30,6 +31,17 @@ func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val.(string))
 	}
 	return context.WithValue(ctx, RoomCtxKey{}, &data[0]), err
+}
+
+func SaveRoomToRedis(ctx context.Context, expiration time.Duration) error {
+	rdb := ctx.Value(RedisCtxKey{}).(*redis.Client)
+	room := ctx.Value(RoomCtxKey{}).(*Room)
+	roomJson, err := json.Marshal(room)
+	if err != nil {
+		return fmt.Errorf("error marshalling room: %w", err)
+	}
+	rdb.Set(ctx, "room:"+room.Id, roomJson, expiration)
+	return nil
 }
 
 type ServerChannelCtxKey struct{}
