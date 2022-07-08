@@ -401,9 +401,9 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 		var nextTurn string
 		if isHost {
-			nextTurn = "\"guest\""
+			nextTurn = "guest"
 		} else {
-			nextTurn = "\"host\""
+			nextTurn = "host"
 		}
 		room.Data.Turn = nextTurn
 		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
