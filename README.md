@@ -11,4 +11,4 @@ I call this the [Distributed Realtime Server Architecture.][2]
 
 [1]: https://github.com/intagaming/tic-tac-toe
 [2]: https://www.hxann.com/blog/posts/distributed-realtime-server
-[3]: https://res.cloudinary.com/an7/image/upload/v1657248180/blog/distributed-realtime-architecture-overview_e9mm3e.png
+[3]: https://res.cloudinary.com/an7/image/upload/v1657248180/blog/distributed-realtime-architecture-extended_f3olml.png
