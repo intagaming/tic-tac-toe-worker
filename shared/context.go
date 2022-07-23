@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ably/ably-go/ably"
-	"github.com/go-redis/redis/v8"
-	"strings"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 )
 
 type RedisCtxKey struct{}
 type AblyCtxKey struct{}
-
 type RoomCtxKey struct{}
 
 func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
@@ -42,19 +40,4 @@ func SaveRoomToRedis(ctx context.Context, expiration time.Duration) error {
 	}
 	rdb.Set(ctx, "room:"+room.Id, roomJson, expiration)
 	return nil
-}
-
-type ServerChannelCtxKey struct{}
-
-func WithServerChannelFromChannel(ctx context.Context, channel string) context.Context {
-	ablyClient := ctx.Value(AblyCtxKey{}).(*ably.Realtime)
-	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
-	return context.WithValue(ctx, ServerChannelCtxKey{}, serverChannel)
-}
-
-func WithServerChannelFromRoomCtx(ctx context.Context) context.Context {
-	ablyClient := ctx.Value(AblyCtxKey{}).(*ably.Realtime)
-	room := ctx.Value(RoomCtxKey{}).(*Room)
-	serverChannel := ablyClient.Channels.Get("server:" + room.Id)
-	return context.WithValue(ctx, ServerChannelCtxKey{}, serverChannel)
 }

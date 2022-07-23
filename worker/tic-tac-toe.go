@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hxann.com/tic-tac-toe-worker/shared"
 	"log"
 	"strconv"
 	"strings"
 	"time"
+
+	"hxann.com/tic-tac-toe-worker/shared"
 
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
@@ -58,13 +59,20 @@ func roomIdFromControlChannel(channel string) string {
 	return strings.Replace(channel, "control:", "", 1)
 }
 
+type serverChannelCtxKey struct{}
+
+func withServerChannelFromChannel(ctx context.Context, channel string) context.Context {
+	ablyClient := ctx.Value(shared.AblyCtxKey{}).(*ably.Realtime)
+	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
+	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
+}
 func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
 	log.Printf("%s entered channel %s\n", presence.ClientId, presenceMsg.Channel)
 
 	channel := presenceMsg.Channel
 	if strings.HasPrefix(channel, "control:") {
-		ctx = shared.WithServerChannelFromChannel(ctx, channel)
+		ctx = withServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
@@ -80,7 +88,7 @@ func onLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	channel := presenceMsg.Channel
 	if strings.HasPrefix(channel, "control:") {
-		ctx = shared.WithServerChannelFromChannel(ctx, channel)
+		ctx = withServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
@@ -96,7 +104,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -225,7 +233,7 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 
 	channel := messageMessage.Channel
 	if strings.HasPrefix(channel, "control:") {
-		ctx = shared.WithServerChannelFromChannel(ctx, channel)
+		ctx = withServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
 			log.Printf("Error getting room: %s", err)
@@ -240,7 +248,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	// channel := messageMessage.Channel
 	clientId := msg.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	switch msg.Name {

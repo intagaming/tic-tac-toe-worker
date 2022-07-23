@@ -89,6 +89,15 @@ func New(ctx context.Context) func() error {
 	}
 }
 
+type serverChannelCtxKey struct{}
+
+func withServerChannelFromRoomCtx(ctx context.Context) context.Context {
+	ablyClient := ctx.Value(shared.AblyCtxKey{}).(*ably.Realtime)
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+	serverChannel := ablyClient.Channels.Get("server:" + room.Id)
+	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
+}
+
 func tryTick(ctx context.Context) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
 
@@ -187,7 +196,7 @@ func tryTick(ctx context.Context) {
 			// Retry immediately
 			continue
 		}
-		tickCtx = shared.WithServerChannelFromRoomCtx(tickCtx)
+		tickCtx = withServerChannelFromRoomCtx(tickCtx)
 		// Tick
 		willTickMore := tick(tickCtx)
 
@@ -255,7 +264,7 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 // tick function ticks a room and returns whether the room will tick again.
 func tick(ctx context.Context) bool {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
-	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// Check if the room is past gameEndsAt
 	if room.Data.GameEndsAt != -1 {
