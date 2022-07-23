@@ -82,7 +82,7 @@ func New(ctx context.Context) func() error {
 			case <-ctx.Done():
 				fmt.Println("Breaking out of the loop")
 				return nil
-			case <-time.After(ticker.sleepUntil.Sub(time.Now())):
+			case <-time.After(time.Until(ticker.sleepUntil)):
 				tryTick(ctx)
 			}
 		}
@@ -121,11 +121,11 @@ func tryTick(ctx context.Context) {
 		unix := time.Unix(unixSeconds, unixNano)
 		if !time.Now().After(unix) {
 			// Sleep min(half a tick, time until the task is due)
-			if unix.Sub(time.Now()) < TickTime/2 { // If the task is due soon
+			if time.Until(unix) < TickTime/2 { // If the task is due soon
 				if ticker.idle {
-					idleOffWithSleepUntil(ctx, time.Now().Add(unix.Sub(time.Now())))
+					idleOffWithSleepUntil(ctx, unix)
 				} else {
-					ticker.sleepUntil = time.Now().Add(unix.Sub(time.Now()))
+					ticker.sleepUntil = unix
 				}
 			} else {
 				idleHalfTick(ctx)
@@ -209,7 +209,7 @@ func tryTick(ctx context.Context) {
 			continue
 		}
 
-		timeElapsed := time.Now().Sub(startTime)
+		timeElapsed := time.Since(startTime)
 		if willTickMore && time.Now().After(nextTickTime) {
 			log.Println("Room ", candidate.Member, " is late. Don't delay! Tick today.")
 			return
@@ -224,14 +224,14 @@ func tryTick(ctx context.Context) {
 
 func idleHalfTick(ctx context.Context) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
-	if ticker.idle == false && ticker.idleHalfTicks >= IdleHalfTicksTrigger {
+	if !ticker.idle && ticker.idleHalfTicks >= IdleHalfTicksTrigger {
 		log.Println("Idle mode enabled.")
 		ticker.idle = true
 		ticker.idleHalfTicks = 0
 		ticker.sleepUntil = time.Now().Add(IdleInterval)
 		return
 	}
-	if ticker.idle == true {
+	if ticker.idle {
 		ticker.sleepUntil = time.Now().Add(IdleInterval)
 	} else {
 		ticker.idleHalfTicks += 1
