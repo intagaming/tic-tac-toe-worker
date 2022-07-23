@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/ably/ably-go/ably"
@@ -44,11 +45,31 @@ func main() {
 	}
 	gCtx = context.WithValue(gCtx, shared.AblyCtxKey{}, ablyClient)
 
-	// Worker listening for messages on the queue
-	g.Go(worker.New(gCtx))
+	// Starting workers for listening for messages on the queue
+	// Getting number of workers
+	numWorkersStr := os.Getenv("NUMBER_OF_WORKERS")
+	numWorkers, err := strconv.Atoi(numWorkersStr)
+	if err != nil {
+		log.Println("Could not parse number of workers. Using default value of 1.")
+		numWorkers = 1
+	}
+	// Start workers
+	for i := 0; i < numWorkers; i++ {
+		g.Go(worker.New(gCtx))
+	}
 
-	// New ticker
-	g.Go(ticker.New(gCtx))
+	// Starting tickers for ticking the rooms
+	// Getting number of tickers
+	numTickersStr := os.Getenv("NUMBER_OF_TICKERS")
+	numTickers, err := strconv.Atoi(numTickersStr)
+	if err != nil {
+		log.Println("Could not parse number of tickers. Using default value of 1.")
+		numTickers = 1
+	}
+	// Start tickers
+	for i := 0; i < numTickers; i++ {
+		g.Go(ticker.New(gCtx))
+	}
 
 	err = g.Wait()
 	if err != nil {

@@ -44,6 +44,7 @@ func New(ctx context.Context) func() error {
 
 	return func() error {
 		// ctx = context.WithValue(ctx, tickerIdCtxKey{}, tickerId)
+		log.Println("Starting ticker")
 
 		ablyApiKey := os.Getenv("ABLY_API_KEY")
 
@@ -73,6 +74,8 @@ func New(ctx context.Context) func() error {
 			sleepUntil:    time.Now(),
 		}
 		ctx = context.WithValue(ctx, tickerCtxKey{}, ticker)
+
+		log.Println("Ticker started")
 
 		for {
 			select {
