@@ -16,8 +16,8 @@ require (
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.0 // indirect
 	github.com/joho/godotenv v1.4.0 // indirect
-	github.com/klauspost/compress v1.15.7 // indirect
+	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/ugorji/go/codec v1.2.7 // indirect
-	golang.org/x/sys v0.0.0-20220702020025-31831981b65f // indirect
+	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
 )
