@@ -3,15 +3,16 @@ package ticker
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+	"time"
+
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
 	"hxann.com/tic-tac-toe-worker/shared"
 	"hxann.com/tic-tac-toe-worker/worker"
-	"log"
-	"os"
-	"time"
 )
 
 type redisCtxKey struct{}
@@ -33,8 +34,17 @@ const IdleInterval = 5 * time.Second // In idle mode, we will tick every followi
 // the lowest scores and being realized before the being-processed task.
 const PushbackTime = TickTime * 5
 
+// type tickerIdCtxKey struct{}
+
+// var tickerCounter int = 0
+
 func New(ctx context.Context) func() error {
+	// tickerId := tickerCounter
+	// tickerCounter++
+
 	return func() error {
+		// ctx = context.WithValue(ctx, tickerIdCtxKey{}, tickerId)
+
 		ablyApiKey := os.Getenv("ABLY_API_KEY")
 
 		// Redis
