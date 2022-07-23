@@ -66,6 +66,7 @@ func withServerChannelFromChannel(ctx context.Context, channel string) context.C
 	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
 	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
 }
+
 func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
 	log.Printf("%s entered channel %s\n", presence.ClientId, presenceMsg.Channel)

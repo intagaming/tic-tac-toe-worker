@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/ably/ably-go/ably"
@@ -15,9 +14,7 @@ import (
 	"hxann.com/tic-tac-toe-worker/worker"
 )
 
-type redisCtxKey struct{}
 type redsyncCtxKey struct{}
-type ablyCtxKey struct{}
 type tickerCtxKey struct{}
 
 type Ticker struct {
@@ -46,27 +43,11 @@ func New(ctx context.Context) func() error {
 		// ctx = context.WithValue(ctx, tickerIdCtxKey{}, tickerId)
 		log.Println("Starting ticker")
 
-		ablyApiKey := os.Getenv("ABLY_API_KEY")
-
-		// Redis
-		opt, err := redis.ParseURL(os.Getenv("REDIS_URL"))
-		if err != nil {
-			panic(err)
-		}
-		rdb := redis.NewClient(opt)
-		ctx = context.WithValue(ctx, redisCtxKey{}, rdb)
-
+		rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 		pool := goredis.NewPool(rdb)
 		// Create an instance of redisync to be used to obtain a mutual exclusion lock.
 		rs := redsync.New(pool)
 		ctx = context.WithValue(ctx, redsyncCtxKey{}, rs)
-
-		// Ably
-		ablyClient, err := ably.NewRealtime(ably.WithKey(ablyApiKey))
-		if err != nil {
-			panic(err)
-		}
-		ctx = context.WithValue(ctx, ablyCtxKey{}, ablyClient)
 
 		ticker := &Ticker{
 			idle:          false,
@@ -101,7 +82,7 @@ func withServerChannelFromRoomCtx(ctx context.Context) context.Context {
 func tryTick(ctx context.Context) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
 
-	rdb := ctx.Value(redisCtxKey{}).(*redis.Client)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	rs := ctx.Value(redsyncCtxKey{}).(*redsync.Redsync)
 
 	// Keep trying until ticking once, then quit tick()
