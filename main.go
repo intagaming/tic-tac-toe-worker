@@ -2,22 +2,26 @@ package main
 
 import (
 	"context"
-	"github.com/ably/ably-go/ably"
-	"github.com/go-redis/redis/v8"
-	"hxann.com/tic-tac-toe-worker/shared"
-	"hxann.com/tic-tac-toe-worker/ticker"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	// "github.com/ably/ably-go/ably"
-
+	"github.com/ably/ably-go/ably"
+	"github.com/go-redis/redis/v8"
+	"github.com/joho/godotenv"
 	"golang.org/x/sync/errgroup"
+	"hxann.com/tic-tac-toe-worker/shared"
+	"hxann.com/tic-tac-toe-worker/ticker"
 	"hxann.com/tic-tac-toe-worker/worker"
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Not loading .env file. Assuming env vars are available.")
+	}
+
 	log.Println("Starting")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

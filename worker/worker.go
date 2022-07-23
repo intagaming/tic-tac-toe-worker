@@ -11,10 +11,10 @@ import (
 
 func New(ctx context.Context) func() error {
 	return func() error {
-		ablyApiKey := os.Getenv("ABLY_API_KEY")
 		ablyQueueName := os.Getenv("ABLY_QUEUE_NAME")
+		amqpUrl := os.Getenv("AMQP_URL")
 
-		conn, err := amqp.Dial(fmt.Sprintf("amqps://%s@us-east-1-a-queue.ably.io:5671/shared", ablyApiKey))
+		conn, err := amqp.Dial(amqpUrl)
 		if err != nil {
 			log.Panicf("Error connecting to RabbitMQ: %s", err)
 		}
