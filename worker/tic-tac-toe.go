@@ -171,6 +171,14 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		// Persists the room
 		rdb.Persist(ctx, "room:"+roomId)
 
+		if room.Host != nil && room.Host.Name == clientId {
+			room.Host.Connected = true
+			shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		} else if room.Guest != nil && room.Guest.Name == clientId {
+			room.Guest.Connected = true
+			shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		}
+
 		// Send the room state
 		roomJson, err := json.Marshal(room)
 		if err != nil {
@@ -227,11 +235,10 @@ func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId 
 
 func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
-	// channel := presenceMsg.Channel
-	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	// The client has some time to join the room again. The due time is before the
 	// time the room expires minus 10 seconds. The 10 seconds is the wiggle-room,
@@ -239,9 +246,14 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// expire, the room might have already expired by the time the player
 	// establishes connection.
 	rdb.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
+	if room.Host != nil && room.Host.Name == clientId {
+		room.Host.Connected = false
+		shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+	} else if room.Guest != nil && room.Guest.Name == clientId {
+		room.Guest.Connected = false
+		shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+	}
 	serverChannel.Publish(ctx, ClientDisconnected.String(), clientId)
-
-	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	expireRoomIfNecessary(ctx, room, clientId)
 }
