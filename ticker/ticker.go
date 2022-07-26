@@ -268,7 +268,7 @@ func tick(ctx context.Context) {
 			} else if err == redis.Nil || roomId != room.Id {
 				publishMessages = append(publishMessages, &ably.Message{
 					Name: worker.ClientLeft.String(),
-					Data: room.Guest,
+					Data: room.Guest.Name,
 				})
 				room.Guest = nil
 				roomUpdated = true
@@ -281,7 +281,7 @@ func tick(ctx context.Context) {
 			} else if err == redis.Nil || roomId != room.Id {
 				publishMessages = append(publishMessages, &ably.Message{
 					Name: worker.ClientLeft.String(),
-					Data: room.Host,
+					Data: room.Host.Name,
 				})
 				room.Host = nil
 				roomUpdated = true
