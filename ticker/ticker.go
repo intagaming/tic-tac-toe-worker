@@ -146,7 +146,10 @@ func tryTick(ctx context.Context) {
 		// Also, if the task is deleted by the worker, the following command will error, and we would skip.
 		scoreCheck, err := rdb.ZScore(ctx, "tickingRooms", candidate.Member.(string)).Result()
 		if err != nil {
-			log.Println("Error getting score: ", err)
+			if err != redis.Nil {
+				log.Println("Error getting score: ", err)
+			}
+			// If nil, the task is deleted. It's expected.
 			if ok, err := mutex.Unlock(); !ok || err != nil {
 				log.Println("Error releasing lock: ", err)
 			}
