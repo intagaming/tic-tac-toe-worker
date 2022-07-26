@@ -13,6 +13,7 @@ type RedisCtxKey struct{}
 type AblyCtxKey struct{}
 type RoomCtxKey struct{}
 type ServerChannelCtxKey struct{}
+type RedsyncCtxKey struct{}
 
 func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 	rdb := ctx.Value(RedisCtxKey{}).(*redis.Client)

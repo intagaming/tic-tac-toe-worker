@@ -13,6 +13,7 @@ import (
 
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
+	"github.com/go-redsync/redsync/v4"
 )
 
 const RoomTimeoutTime = 1 * time.Minute
@@ -282,8 +283,7 @@ func RemovePlayerFromRoom(ctx context.Context, clientToRemove string) {
 	}
 }
 
-func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
-	msg := messageMessage.Messages[0]
+func processMessage(ctx context.Context, msg *Message) {
 	clientId := msg.ClientId
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
@@ -413,6 +413,28 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
+	msg := messageMessage.Messages[0]
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+
+	// Lock room
+	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
+	mutexname := "lockroom:" + room.Id
+	mutex := rs.NewMutex(mutexname)
+	if err := mutex.Lock(); err != nil {
+		log.Println("Error acquiring lock: ", err)
+		// We couldn't acquire lock. We decide to drop the request.
+		return
+	}
+
+	processMessage(ctx, &msg)
+
+	// Release lock
+	if ok, err := mutex.Unlock(); !ok || err != nil {
+		log.Println("Error releasing lock: ", err)
 	}
 }
 

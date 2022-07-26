@@ -10,6 +10,8 @@ import (
 
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
 	"github.com/joho/godotenv"
 	"golang.org/x/sync/errgroup"
 	"hxann.com/tic-tac-toe-worker/shared"
@@ -44,6 +46,10 @@ func main() {
 		panic(err)
 	}
 	gCtx = context.WithValue(gCtx, shared.AblyCtxKey{}, ablyClient)
+
+	pool := goredis.NewPool(rdb)
+	rs := redsync.New(pool)
+	gCtx = context.WithValue(gCtx, shared.RedsyncCtxKey{}, rs)
 
 	// Starting workers for listening for messages on the queue
 	// Getting number of workers

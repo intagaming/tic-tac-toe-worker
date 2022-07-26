@@ -10,12 +10,10 @@ import (
 	"github.com/ably/ably-go/ably"
 	"github.com/go-redis/redis/v8"
 	"github.com/go-redsync/redsync/v4"
-	"github.com/go-redsync/redsync/v4/redis/goredis/v8"
 	"hxann.com/tic-tac-toe-worker/shared"
 	"hxann.com/tic-tac-toe-worker/worker"
 )
 
-type redsyncCtxKey struct{}
 type tickerCtxKey struct{}
 
 type Ticker struct {
@@ -43,12 +41,6 @@ func New(ctx context.Context) func() error {
 	return func() error {
 		// ctx = context.WithValue(ctx, tickerIdCtxKey{}, tickerId)
 		log.Println("Starting ticker")
-
-		rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-		pool := goredis.NewPool(rdb)
-		// Create an instance of redisync to be used to obtain a mutual exclusion lock.
-		rs := redsync.New(pool)
-		ctx = context.WithValue(ctx, redsyncCtxKey{}, rs)
 
 		ticker := &Ticker{
 			idle:          false,
@@ -82,7 +74,7 @@ func tryTick(ctx context.Context) {
 	ticker := ctx.Value(tickerCtxKey{}).(*Ticker)
 
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	rs := ctx.Value(redsyncCtxKey{}).(*redsync.Redsync)
+	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
 
 	// Keep trying until ticking once, then quit tick()
 	for {
@@ -131,7 +123,7 @@ func tryTick(ctx context.Context) {
 		}
 
 		// Try to acquire lock on the room
-		mutexname := "tick:" + candidate.Member.(string)
+		mutexname := "lockroom:" + candidate.Member.(string)
 		mutex := rs.NewMutex(mutexname)
 		if err := mutex.Lock(); err != nil {
 			log.Println("Error acquiring lock: ", err)
