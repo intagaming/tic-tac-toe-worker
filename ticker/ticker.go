@@ -190,9 +190,11 @@ func tryTick(ctx context.Context) {
 		tick(tickCtx)
 
 		// Schedule next tick
-		nextTickTime := unix.Add(TickTime)
+		correctNextTickTime := unix.Add(TickTime)
+		// We just skip late ticks.
+		insistedNextTickTime := time.Now().Add(TickTime)
 		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
-			Score:  float64(nextTickTime.UnixMicro()),
+			Score:  float64(insistedNextTickTime.UnixMicro()),
 			Member: candidate.Member,
 		})
 
@@ -202,8 +204,8 @@ func tryTick(ctx context.Context) {
 		}
 
 		timeElapsed := time.Since(startTime)
-		if time.Now().After(nextTickTime) {
-			log.Printf("Room %s is late by %v. Don't delay! Tick today.", candidate.Member, time.Until(nextTickTime))
+		if time.Now().After(correctNextTickTime) {
+			log.Printf("Room %s is late by %v. Don't delay! Tick today.", candidate.Member, time.Until(correctNextTickTime))
 			return
 		}
 		if timeElapsed < TickTime/2 {
