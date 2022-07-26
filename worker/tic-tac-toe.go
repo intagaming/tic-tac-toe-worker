@@ -72,12 +72,10 @@ func roomIdFromControlChannel(channel string) string {
 	return strings.Replace(channel, "control:", "", 1)
 }
 
-type serverChannelCtxKey struct{}
-
 func withServerChannelFromChannel(ctx context.Context, channel string) context.Context {
 	ablyClient := ctx.Value(shared.AblyCtxKey{}).(*ably.Realtime)
 	serverChannel := ablyClient.Channels.Get("server:" + strings.Replace(channel, "control:", "", 1))
-	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
+	return context.WithValue(ctx, shared.ServerChannelCtxKey{}, serverChannel)
 }
 
 func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
@@ -118,7 +116,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -201,46 +199,11 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 }
 
-func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId string) {
-	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-
-	// Set expiration for the room if all clients have left
-	// If not the host or guest, keep the room alive
-	if !((room.Host != nil && leftClientId == room.Host.Name) || (room.Guest != nil && leftClientId == room.Guest.Name)) {
-		return
-	}
-	var toCheck *string
-	if room.Host != nil && room.Host.Name == leftClientId && room.Guest != nil {
-		toCheck = &room.Guest.Name
-	} else if room.Guest != nil && room.Guest.Name == leftClientId && room.Host != nil {
-		toCheck = &room.Host.Name
-	}
-	if toCheck == nil { // If there's no one left, expire the room
-		rdb.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
-	} else {
-		pipe := rdb.Pipeline()
-		ttl := pipe.TTL(ctx, "client:"+*toCheck)
-		clientRoomId := pipe.Get(ctx, "client:"+*toCheck)
-
-		_, err := pipe.Exec(ctx)
-		if err != nil && err != redis.Nil {
-			log.Printf("Error getting TTL and clientRoomId for client %s: %s\n", *toCheck, err)
-			return
-		}
-		// Even when we didn't find the client, we still expire the room anyway, because the client is nowhere to be found.
-
-		// If the other client disappeared, or is not in the room, or the room they're in is not the room in question, then expire the room.
-		if err == redis.Nil || ttl.Val() != -1 || clientRoomId.Val() != room.Id {
-			rdb.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
-		}
-	}
-}
-
 func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	presence := presenceMsg.Presence[0]
 	clientId := presence.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	// The client has some time to join the room again. The due time is before the
@@ -257,8 +220,6 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 		shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 	}
 	serverChannel.Publish(ctx, ClientDisconnected.String(), clientId)
-
-	expireRoomIfNecessary(ctx, room, clientId)
 }
 
 func onMessage(ctx context.Context, messageMessage *MessageMessage) {
@@ -277,10 +238,54 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 	}
 }
 
+func RemovePlayerFromRoom(ctx context.Context, clientToRemove string) {
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
+
+	if room.Host != nil && room.Host.Name == clientToRemove {
+		// If we have a guest, make that guest the new host
+		if room.Guest != nil {
+			_ = serverChannel.Publish(ctx, HostChange.String(), room.Guest.Name)
+
+			room.Host = room.Guest
+			room.Guest = nil
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			room.Host = nil
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+			if err != nil {
+				panic(err)
+			}
+		}
+	} else if room.Guest != nil && room.Guest.Name == clientToRemove {
+		room.Guest = nil
+		err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		if err != nil {
+			panic(err)
+		}
+	}
+	_ = serverChannel.Publish(ctx, ClientLeft.String(), clientToRemove)
+
+	// End the game if playing
+	if room.State == "playing" {
+		room.State = "finishing"
+		gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
+		room.Data.GameEndsAt = gameEndsAt
+		err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+		if err != nil {
+			panic(err)
+		}
+		_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
+	}
+}
+
 func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
 	msg := messageMessage.Messages[0]
 	clientId := msg.ClientId
-	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	switch msg.Name {
@@ -309,46 +314,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	case LeaveRoom.String():
 		// Remove player from room
 		clientToRemove := msg.Data
-		if room.Host != nil && room.Host.Name == clientToRemove {
-			// If we have a guest, make that guest the new host
-			if room.Guest != nil {
-				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
-
-				room.Host = room.Guest
-				room.Guest = nil
-				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-				if err != nil {
-					panic(err)
-				}
-			} else {
-				room.Host = nil
-				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-				if err != nil {
-					panic(err)
-				}
-			}
-		} else if room.Guest != nil && room.Guest.Name == clientToRemove {
-			room.Guest = nil
-			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-			if err != nil {
-				panic(err)
-			}
-		}
-		_ = serverChannel.Publish(ctx, ClientLeft.String(), clientToRemove)
-
-		// End the game if playing
-		if room.State == "playing" {
-			room.State = "finishing"
-			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
-			room.Data.GameEndsAt = gameEndsAt
-			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-			if err != nil {
-				panic(err)
-			}
-			_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
-		}
-
-		expireRoomIfNecessary(ctx, room, clientToRemove)
+		RemovePlayerFromRoom(ctx, clientToRemove)
 	case CheckBox.String():
 		boxToCheck, err := strconv.Atoi(msg.Data)
 		if err != nil {

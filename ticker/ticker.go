@@ -71,13 +71,11 @@ func New(ctx context.Context) func() error {
 	}
 }
 
-type serverChannelCtxKey struct{}
-
 func withServerChannelFromRoomCtx(ctx context.Context) context.Context {
 	ablyClient := ctx.Value(shared.AblyCtxKey{}).(*ably.Realtime)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	serverChannel := ablyClient.Channels.Get("server:" + room.Id)
-	return context.WithValue(ctx, serverChannelCtxKey{}, serverChannel)
+	return context.WithValue(ctx, shared.ServerChannelCtxKey{}, serverChannel)
 }
 
 func tryTick(ctx context.Context) {
@@ -252,26 +250,18 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 // tick function ticks a room.
 func tick(ctx context.Context) {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
-	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 
 	switch room.State {
 	case "waiting":
-		var publishMessages []*ably.Message
-		var roomUpdated bool = false
-
 		// Remove timeout-ed players
 		if room.Guest != nil {
 			roomId, err := rdb.Get(ctx, "client:"+room.Guest.Name).Result()
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				publishMessages = append(publishMessages, &ably.Message{
-					Name: worker.ClientLeft.String(),
-					Data: room.Guest.Name,
-				})
-				room.Guest = nil
-				roomUpdated = true
+				worker.RemovePlayerFromRoom(ctx, room.Guest.Name)
 			}
 		}
 		if room.Host != nil {
@@ -279,24 +269,14 @@ func tick(ctx context.Context) {
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				publishMessages = append(publishMessages, &ably.Message{
-					Name: worker.ClientLeft.String(),
-					Data: room.Host.Name,
-				})
-				room.Host = nil
-				roomUpdated = true
+				worker.RemovePlayerFromRoom(ctx, room.Host.Name)
 			}
 		}
 
-		if roomUpdated {
-			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		if len(publishMessages) > 0 {
-			serverChannel.PublishMultiple(ctx, publishMessages)
+		// Remove the room if all players left.
+		if room.Guest == nil && room.Host == nil {
+			rdb.Del(ctx, "room:"+room.Id)
+			rdb.ZRem(ctx, "tickingRooms", room.Id)
 		}
 
 	case "playing":
