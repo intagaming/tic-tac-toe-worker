@@ -1,10 +1,15 @@
 package shared
 
+type Player struct {
+	Name      string `json:"name"`
+	Connected bool   `json:"connected"`
+}
+
 type Room struct {
 	Id    string        `json:"id"`
-	Host  *string       `json:"host"`
+	Host  *Player       `json:"host"`
 	State string        `json:"state"`
-	Guest *string       `json:"guest"`
+	Guest *Player       `json:"guest"`
 	Data  TicTacToeData `json:"data"`
 }
 

@@ -24,6 +24,7 @@ const (
 	RoomState
 	GameStartsNow
 	ClientLeft
+	ClientDisconnected
 	PlayerCheckedBox
 	GameResultAnnounce
 	GameFinishing
@@ -31,7 +32,17 @@ const (
 )
 
 func (a Announcers) String() string {
-	return [...]string{"HOST_CHANGE", "ROOM_STATE", "GAME_STARTS_NOW", "CLIENT_LEFT", "PLAYER_CHECKED_BOX", "GAME_RESULT", "GAME_FINISHING", "GAME_FINISHED"}[a]
+	return [...]string{
+		"HOST_CHANGE",
+		"ROOM_STATE",
+		"GAME_STARTS_NOW",
+		"CLIENT_LEFT",
+		"CLIENT_DISCONNECTED",
+		"PLAYER_CHECKED_BOX",
+		"GAME_RESULT",
+		"GAME_FINISHING",
+		"GAME_FINISHED",
+	}[a]
 }
 
 type CheckedBoxAnnouncement struct {
@@ -112,7 +123,10 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	if room.Host == nil { // If no host set
 		// Set as host
 		// TODO: fix race condition when we're setting the host but someone else joins first and became the host?
-		room.Host = &clientId
+		room.Host = &shared.Player{
+			Name:      clientId,
+			Connected: true,
+		}
 		// Save, and persist the room
 		err := shared.SaveRoomToRedis(ctx, 0)
 		if err != nil {
@@ -120,7 +134,6 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		// Persists the client's roomId
 		rdb.Set(ctx, "client:"+clientId, roomId, 0)
-		room.Host = &clientId
 
 		// Send the room state
 		roomJson, err := json.Marshal(room)
@@ -130,9 +143,12 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 		return
-	} else if *room.Host != clientId && room.Guest == nil { // If not the host and no guest set
+	} else if room.Host.Name != clientId && room.Guest == nil { // If not the host and no guest set
 		// Set as guest
-		room.Guest = &clientId
+		room.Guest = &shared.Player{
+			Name:      clientId,
+			Connected: true,
+		}
 		// Save, and persist the room
 		err := shared.SaveRoomToRedis(ctx, 0)
 		if err != nil {
@@ -140,7 +156,6 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		// Persists the client's roomId
 		rdb.Set(ctx, "client:"+clientId, roomId, 0)
-		room.Guest = &clientId
 
 		// Send the room state
 		roomJson, err := json.Marshal(room)
@@ -150,7 +165,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 		return
-	} else if *room.Host == clientId || *room.Guest == clientId { // If re-joining
+	} else if room.Host.Name == clientId || room.Guest.Name == clientId { // If re-joining
 		// Persists the client's roomId
 		rdb.Set(ctx, "client:"+clientId, roomId, 0)
 		// Persists the room
@@ -179,13 +194,15 @@ func expireRoomIfNecessary(ctx context.Context, room *shared.Room, leftClientId 
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 
 	// Set expiration for the room if all clients have left
-	var toCheck *string
-	if room.Host != nil && *room.Host == leftClientId {
-		toCheck = room.Guest
-	} else if room.Guest != nil && *room.Guest == leftClientId {
-		toCheck = room.Host
-	} else { // If not the host or guest, keep the room alive
+	// If not the host or guest, keep the room alive
+	if !((room.Host != nil && leftClientId == room.Host.Name) || (room.Guest != nil && leftClientId == room.Guest.Name)) {
 		return
+	}
+	var toCheck *string
+	if room.Host != nil && room.Host.Name == leftClientId && room.Guest != nil {
+		toCheck = &room.Guest.Name
+	} else if room.Guest != nil && room.Guest.Name == leftClientId && room.Host != nil {
+		toCheck = &room.Host.Name
 	}
 	if toCheck == nil { // If there's no one left, expire the room
 		rdb.Expire(ctx, "room:"+room.Id, RoomTimeoutTime)
@@ -214,7 +231,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// roomId := roomIdFromControlChannel(channel)
 	clientId := presence.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
-	// serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
+	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	// The client has some time to join the room again. The due time is before the
 	// time the room expires minus 10 seconds. The 10 seconds is the wiggle-room,
@@ -222,6 +239,7 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	// expire, the room might have already expired by the time the player
 	// establishes connection.
 	rdb.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
+	serverChannel.Publish(ctx, ClientDisconnected.String(), clientId)
 
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -252,7 +270,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 	switch msg.Name {
 	case StartGame.String():
-		if room.State != "waiting" || room.Host == nil || room.Guest == nil || *room.Host != msg.ClientId {
+		if room.State != "waiting" || room.Host == nil || room.Guest == nil || room.Host.Name != msg.ClientId {
 			return
 		}
 
@@ -276,7 +294,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	case LeaveRoom.String():
 		// Remove player from room
 		clientToRemove := msg.Data
-		if room.Host != nil && *room.Host == clientToRemove {
+		if room.Host != nil && room.Host.Name == clientToRemove {
 			// If we have a guest, make that guest the new host
 			if room.Guest != nil {
 				_ = serverChannel.Publish(ctx, HostChange.String(), *room.Guest)
@@ -294,7 +312,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 					panic(err)
 				}
 			}
-		} else if room.Guest != nil && *room.Guest == clientToRemove {
+		} else if room.Guest != nil && room.Guest.Name == clientToRemove {
 			room.Guest = nil
 			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 			if err != nil {
@@ -325,16 +343,16 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 		// Check if is host or guest
 		var isHost bool
-		if room.Host != nil && *room.Host == clientId {
+		if room.Host != nil && room.Host.Name == clientId {
 			isHost = true
-		} else if room.Guest != nil && *room.Guest == clientId {
+		} else if room.Guest != nil && room.Guest.Name == clientId {
 			isHost = false
 		} else {
 			return
 		}
 
 		// Check if it's the client's turn
-		if room.Host == nil || room.Guest == nil || (clientId == *room.Host && room.Data.Turn != "host") || (clientId == *room.Guest && room.Data.Turn != "guest") {
+		if room.Host == nil || room.Guest == nil || (clientId == room.Host.Name && room.Data.Turn != "host") || (clientId == room.Guest.Name && room.Data.Turn != "guest") {
 			return
 		}
 
@@ -386,9 +404,9 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			// Announce game result
 			var winnerClientId *string // If the game is draw, the winnerClientId will be nil
 			if result == HostWin {
-				winnerClientId = room.Host
+				winnerClientId = &room.Host.Name
 			} else if result == GuestWin {
-				winnerClientId = room.Guest
+				winnerClientId = &room.Guest.Name
 			}
 			announcement, err := json.Marshal(GameResultAnnouncement{
 				Winner:     winnerClientId,
