@@ -223,8 +223,8 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 }
 
 func onMessage(ctx context.Context, messageMessage *MessageMessage) {
-	msg := messageMessage.Messages[0]
-	log.Printf("%s sent message %v on channel %s\n", msg.ClientId, msg, messageMessage.Channel)
+	// msg := messageMessage.Messages[0]
+	// log.Printf("%s sent message %v on channel %s\n", msg.ClientId, msg, messageMessage.Channel)
 
 	channel := messageMessage.Channel
 	if strings.HasPrefix(channel, "control:") {
