@@ -2,6 +2,7 @@ package ticker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -171,6 +172,13 @@ func tryTick(ctx context.Context) {
 		roomId := candidate.Member.(string)
 		tickCtx, err := shared.WithRoom(ctx, roomId)
 		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				// Room does not exist but presents in the ticking set.
+				// We need to remove this room from the set.
+				rdb.ZRem(ctx, "tickingRooms", roomId)
+			}
+
+			// Room exists but we can't get it.
 			if ok, err := mutex.Unlock(); !ok || err != nil {
 				log.Println("Error releasing lock: ", err)
 			}
@@ -179,20 +187,14 @@ func tryTick(ctx context.Context) {
 		}
 		tickCtx = withServerChannelFromRoomCtx(tickCtx)
 		// Tick
-		willTickMore := tick(tickCtx)
+		tick(tickCtx)
 
-		var nextTickTime time.Time
-		if !willTickMore {
-			// Remove the room from the tickingRooms list
-			rdb.ZRem(ctx, "tickingRooms", roomId)
-		} else {
-			// Schedule next tick
-			nextTickTime = unix.Add(TickTime)
-			rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
-				Score:  float64(nextTickTime.UnixMicro()),
-				Member: candidate.Member,
-			})
-		}
+		// Schedule next tick
+		nextTickTime := unix.Add(TickTime)
+		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
+			Score:  float64(nextTickTime.UnixMicro()),
+			Member: candidate.Member,
+		})
 
 		if ok, err := mutex.Unlock(); !ok || err != nil {
 			log.Println("Error releasing lock: ", err)
@@ -200,7 +202,7 @@ func tryTick(ctx context.Context) {
 		}
 
 		timeElapsed := time.Since(startTime)
-		if willTickMore && time.Now().After(nextTickTime) {
+		if time.Now().After(nextTickTime) {
 			log.Println("Room ", candidate.Member, " is late. Don't delay! Tick today.")
 			return
 		}
@@ -242,38 +244,42 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 	ticker.sleepUntil = sleepUntil
 }
 
-// tick function ticks a room and returns whether the room will tick again.
-func tick(ctx context.Context) bool {
+// tick function ticks a room.
+func tick(ctx context.Context) {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 
-	// Check if the room is past gameEndsAt
-	if room.Data.GameEndsAt != -1 {
-		gameEndsAt := time.Unix(int64(room.Data.GameEndsAt), 0)
-		if time.Now().After(gameEndsAt) {
-			// Ends the game
-			// Reset the room state to waiting
-			room.State = "waiting"
-			room.Data = shared.TicTacToeData{
-				Ticks:      0,
-				Board:      []*string{nil, nil, nil, nil, nil, nil, nil, nil, nil},
-				Turn:       "host",
-				TurnEndsAt: -1,
-				GameEndsAt: -1,
-			}
-			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-			if err != nil {
-				panic(err)
-			}
+	switch room.State {
+	case "waiting":
+		log.Println("Ticking room ", room.Id, " in waiting state")
+	case "playing":
+	case "finishing":
+		// Check if the room is past gameEndsAt
+		if room.Data.GameEndsAt != -1 {
+			gameEndsAt := time.Unix(int64(room.Data.GameEndsAt), 0)
+			if time.Now().After(gameEndsAt) {
+				// Ends the game
+				// Reset the room state to waiting
+				room.State = "waiting"
+				room.Data = shared.TicTacToeData{
+					Ticks:      0,
+					Board:      []*string{nil, nil, nil, nil, nil, nil, nil, nil, nil},
+					Turn:       "host",
+					TurnEndsAt: -1,
+					GameEndsAt: -1,
+				}
+				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+				if err != nil {
+					panic(err)
+				}
 
-			// Announce the game ended and room state
-			_ = serverChannel.Publish(ctx, worker.GameFinished.String(), "")
-			return false
+				// Announce the game ended and room state
+				_ = serverChannel.Publish(ctx, worker.GameFinished.String(), "")
+				return
+			}
+			return
 		}
-		return true
+
+		// TODO: Turn timer
 	}
-
-	// TODO: Turn timer
-
-	return true
 }

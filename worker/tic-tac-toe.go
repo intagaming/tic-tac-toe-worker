@@ -246,9 +246,7 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 
 func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
 	msg := messageMessage.Messages[0]
-	// channel := messageMessage.Channel
 	clientId := msg.ClientId
-	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
@@ -267,9 +265,6 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		if err != nil {
 			panic(err)
 		}
-
-		// Add the game to the ticker sorted set
-		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{Score: float64(now.UnixMicro()), Member: room.Id})
 
 		roomJson, err := json.Marshal(room)
 		if err != nil {
