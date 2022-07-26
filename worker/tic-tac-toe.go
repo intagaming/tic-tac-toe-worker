@@ -25,6 +25,7 @@ const (
 	GameStartsNow
 	ClientLeft
 	ClientDisconnected
+	ClientReconnected
 	PlayerCheckedBox
 	GameResultAnnounce
 	GameFinishing
@@ -38,6 +39,7 @@ func (a Announcers) String() string {
 		"GAME_STARTS_NOW",
 		"CLIENT_LEFT",
 		"CLIENT_DISCONNECTED",
+		"CLIENT_RECONNECTED",
 		"PLAYER_CHECKED_BOX",
 		"GAME_RESULT",
 		"GAME_FINISHING",
@@ -186,6 +188,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 			return
 		}
 		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
+		serverChannel.Publish(ctx, ClientReconnected.String(), clientId)
 	}
 
 	// TODO: do something when the room is full
