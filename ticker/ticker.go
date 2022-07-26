@@ -257,10 +257,10 @@ func tick(ctx context.Context) {
 
 		// Remove timeout-ed players
 		if room.Guest != nil {
-			exist, err := rdb.Exists(ctx, "client:"+*room.Guest).Result()
-			if err != nil {
+			roomId, err := rdb.Get(ctx, "client:"+*room.Guest).Result()
+			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
-			} else if exist == 0 {
+			} else if err == redis.Nil || roomId != room.Id {
 				publishMessages = append(publishMessages, &ably.Message{
 					Name: worker.ClientLeft.String(),
 					Data: room.Guest,
@@ -270,10 +270,10 @@ func tick(ctx context.Context) {
 			}
 		}
 		if room.Host != nil {
-			exist, err := rdb.Exists(ctx, "client:"+*room.Host).Result()
-			if err != nil {
+			roomId, err := rdb.Get(ctx, "client:"+*room.Host).Result()
+			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
-			} else if exist == 0 {
+			} else if err == redis.Nil || roomId != room.Id {
 				publishMessages = append(publishMessages, &ably.Message{
 					Name: worker.ClientLeft.String(),
 					Data: room.Host,
