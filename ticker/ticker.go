@@ -154,7 +154,7 @@ func tryTick(ctx context.Context) {
 			continue
 		}
 		if scoreCheck != candidate.Score {
-			log.Println("Room " + candidate.Member.(string) + " has already been processed by another ticker")
+			// Task has been processed by another ticker.
 			if ok, err := mutex.Unlock(); !ok || err != nil {
 				log.Println("Error releasing lock: ", err)
 			}
