@@ -248,10 +248,52 @@ func idleOffWithSleepUntil(ctx context.Context, sleepUntil time.Time) {
 func tick(ctx context.Context) {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	serverChannel := ctx.Value(serverChannelCtxKey{}).(*ably.RealtimeChannel)
+	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 
 	switch room.State {
 	case "waiting":
-		log.Println("Ticking room ", room.Id, " in waiting state")
+		var publishMessages []*ably.Message
+		var roomUpdated bool = false
+
+		// Remove timeout-ed players
+		if room.Guest != nil {
+			exist, err := rdb.Exists(ctx, "client:"+*room.Guest).Result()
+			if err != nil {
+				log.Println("Error checking if client exists: ", err)
+			} else if exist == 0 {
+				publishMessages = append(publishMessages, &ably.Message{
+					Name: worker.ClientLeft.String(),
+					Data: room.Guest,
+				})
+				room.Guest = nil
+				roomUpdated = true
+			}
+		}
+		if room.Host != nil {
+			exist, err := rdb.Exists(ctx, "client:"+*room.Host).Result()
+			if err != nil {
+				log.Println("Error checking if client exists: ", err)
+			} else if exist == 0 {
+				publishMessages = append(publishMessages, &ably.Message{
+					Name: worker.ClientLeft.String(),
+					Data: room.Host,
+				})
+				room.Host = nil
+				roomUpdated = true
+			}
+		}
+
+		if roomUpdated {
+			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		if len(publishMessages) > 0 {
+			serverChannel.PublishMultiple(ctx, publishMessages)
+		}
+
 	case "playing":
 	case "finishing":
 		// Check if the room is past gameEndsAt
