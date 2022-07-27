@@ -247,13 +247,16 @@ func tick(ctx context.Context) {
 
 	switch room.State {
 	case "waiting":
+		pipe := rdb.Pipeline()
+		var publishMessages []*ably.Message
+
 		// Remove timeout-ed players
 		if room.Guest != nil {
 			roomId, err := rdb.Get(ctx, "client:"+room.Guest.Name).Result()
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				worker.RemovePlayerFromRoom(ctx, room.Guest.Name)
+				publishMessages = append(publishMessages, worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Guest.Name)...)
 			}
 		}
 		if room.Host != nil {
@@ -261,16 +264,25 @@ func tick(ctx context.Context) {
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				worker.RemovePlayerFromRoom(ctx, room.Host.Name)
+				publishMessages = append(publishMessages, worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Host.Name)...)
 			}
 		}
 
 		// Remove the room if all players left.
 		if room.Guest == nil && room.Host == nil {
-			rdb.Del(ctx, "room:"+room.Id)
-			rdb.ZRem(ctx, "tickingRooms", room.Id)
+			pipe.Del(ctx, "room:"+room.Id)
+			pipe.ZRem(ctx, "tickingRooms", room.Id)
 		}
 
+		if pipe.Len() > 0 {
+			if _, err := pipe.Exec(ctx); err != nil {
+				log.Println("Error executing pipeline: ", err)
+			}
+		}
+
+		if len(publishMessages) > 0 {
+			serverChannel.PublishMultiple(ctx, publishMessages)
+		}
 	case "playing":
 	case "finishing":
 		// Check if the room is past gameEndsAt
