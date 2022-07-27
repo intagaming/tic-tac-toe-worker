@@ -349,10 +349,27 @@ func RemovePlayerFromRoomInPipeline(ctx context.Context, pipe redis.Pipeliner, c
 	return publishMessages
 }
 
-func processMessage(ctx context.Context, msg *Message) {
+func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
+	msg := messageMessage.Messages[0]
+	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 	clientId := msg.ClientId
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
-	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+
+	// Lock room
+	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
+	mutexname := "lockroom:" + room.Id
+	mutex := rs.NewMutex(mutexname)
+	if err := mutex.Lock(); err != nil {
+		log.Println("Error acquiring lock: ", err)
+		// We couldn't acquire lock. We decide to drop the request.
+		return
+	}
+	// Defer release lock
+	defer func() {
+		if ok, err := mutex.Unlock(); !ok || err != nil {
+			log.Println("Error releasing lock: ", err)
+		}
+	}()
 
 	switch msg.Name {
 	case StartGame.String():
@@ -484,28 +501,7 @@ func processMessage(ctx context.Context, msg *Message) {
 
 		serverChannel.PublishMultiple(ctx, publishMessages)
 	}
-}
 
-func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
-	msg := messageMessage.Messages[0]
-	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
-
-	// Lock room
-	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
-	mutexname := "lockroom:" + room.Id
-	mutex := rs.NewMutex(mutexname)
-	if err := mutex.Lock(); err != nil {
-		log.Println("Error acquiring lock: ", err)
-		// We couldn't acquire lock. We decide to drop the request.
-		return
-	}
-
-	processMessage(ctx, &msg)
-
-	// Release lock
-	if ok, err := mutex.Unlock(); !ok || err != nil {
-		log.Println("Error releasing lock: ", err)
-	}
 }
 
 type GameResult int
