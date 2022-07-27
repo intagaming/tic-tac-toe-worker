@@ -370,12 +370,11 @@ func processMessage(ctx context.Context, msg *Message) {
 			panic(err)
 		}
 
-		roomJson, err := json.Marshal(room)
+		roomJson, err := shared.MarshallRoom(ctx)
 		if err != nil {
-			log.Printf("Error marshalling room: %s\n", err)
+			log.Println(err)
 			return
 		}
-
 		_ = serverChannel.Publish(ctx, GameStartsNow.String(), string(roomJson))
 	case LeaveRoom.String():
 		// Remove player from room
@@ -387,6 +386,8 @@ func processMessage(ctx context.Context, msg *Message) {
 			log.Printf("Error parsing box to check: %s\n", err)
 			return
 		}
+
+		var publishMessages []*ably.Message
 
 		// Check if is host or guest
 		var isHost bool
@@ -417,10 +418,6 @@ func processMessage(ctx context.Context, msg *Message) {
 		}
 		// Update the board
 		room.Data.Board[boxToCheck] = &checkInto
-		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-		if err != nil {
-			panic(err)
-		}
 
 		announcement, err := json.Marshal(CheckedBoxAnnouncement{
 			HostOrGuest: checkInto,
@@ -430,7 +427,10 @@ func processMessage(ctx context.Context, msg *Message) {
 			log.Printf("Error marshalling announcement: %s\n", err)
 			return
 		}
-		_ = serverChannel.Publish(ctx, PlayerCheckedBox.String(), string(announcement))
+		publishMessages = append(publishMessages, &ably.Message{
+			Name: PlayerCheckedBox.String(),
+			Data: string(announcement),
+		})
 
 		// Check if someone's winning
 		result, err := gameResult(ctx)
@@ -443,10 +443,6 @@ func processMessage(ctx context.Context, msg *Message) {
 			room.State = "finishing"
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
 			room.Data.GameEndsAt = gameEndsAt
-			err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-			if err != nil {
-				panic(err)
-			}
 
 			// Announce game result
 			var winnerClientId *string // If the game is draw, the winnerClientId will be nil
@@ -463,22 +459,30 @@ func processMessage(ctx context.Context, msg *Message) {
 				log.Printf("Error marshalling winner announcement: %s\n", err)
 				return
 			}
-			_ = serverChannel.Publish(ctx, GameFinishing.String(), strconv.Itoa(gameEndsAt))
-			_ = serverChannel.Publish(ctx, GameResultAnnounce.String(), string(announcement))
-			return
+			publishMessages = append(publishMessages, &ably.Message{
+				Name: GameFinishing.String(),
+				Data: strconv.Itoa(gameEndsAt),
+			})
+			publishMessages = append(publishMessages, &ably.Message{
+				Name: GameResultAnnounce.String(),
+				Data: string(announcement),
+			})
+		} else {
+			var nextTurn string
+			if isHost {
+				nextTurn = "guest"
+			} else {
+				nextTurn = "host"
+			}
+			room.Data.Turn = nextTurn
 		}
 
-		var nextTurn string
-		if isHost {
-			nextTurn = "guest"
-		} else {
-			nextTurn = "host"
-		}
-		room.Data.Turn = nextTurn
 		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 		if err != nil {
 			panic(err)
 		}
+
+		serverChannel.PublishMultiple(ctx, publishMessages)
 	}
 }
 
