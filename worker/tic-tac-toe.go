@@ -118,8 +118,23 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 	clientId := presence.ClientId
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
-
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+
+	// Lock room
+	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
+	mutexname := "lockroom:" + room.Id
+	mutex := rs.NewMutex(mutexname)
+	if err := mutex.Lock(); err != nil {
+		log.Println("Error acquiring lock: ", err)
+		// We couldn't acquire lock. We decide to drop the request.
+		return
+	}
+	// Defer release lock
+	defer func() {
+		if ok, err := mutex.Unlock(); !ok || err != nil {
+			log.Println("Error releasing lock: ", err)
+		}
+	}()
 
 	if room.Host == nil { // If no host set
 		// Set as host
@@ -229,6 +244,22 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
+
+	// Lock room
+	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
+	mutexname := "lockroom:" + room.Id
+	mutex := rs.NewMutex(mutexname)
+	if err := mutex.Lock(); err != nil {
+		log.Println("Error acquiring lock: ", err)
+		// We couldn't acquire lock. We decide to drop the request.
+		return
+	}
+	// Defer release lock
+	defer func() {
+		if ok, err := mutex.Unlock(); !ok || err != nil {
+			log.Println("Error releasing lock: ", err)
+		}
+	}()
 
 	pipe := rdb.Pipeline()
 
