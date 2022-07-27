@@ -43,3 +43,28 @@ func SaveRoomToRedis(ctx context.Context, expiration time.Duration) error {
 	rdb.Set(ctx, "room:"+room.Id, roomJson, expiration)
 	return nil
 }
+
+func MarshallRoom(ctx context.Context) ([]byte, error) {
+	room := ctx.Value(RoomCtxKey{}).(*Room)
+	roomJson, err := json.Marshal(room)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling room: %w", err)
+	}
+	return roomJson, nil
+}
+
+func SaveRoomToRedisInPipeline(ctx context.Context, pipe redis.Pipeliner, expiration time.Duration) error {
+	room := ctx.Value(RoomCtxKey{}).(*Room)
+	roomJson, err := MarshallRoom(ctx)
+	if err != nil {
+		return fmt.Errorf("error marshalling room: %w", err)
+	}
+	pipe.Set(ctx, "room:"+room.Id, roomJson, expiration)
+	return nil
+}
+
+func SaveRoomToRedisWithJsonInPipeline(ctx context.Context, roomJson []byte, pipe redis.Pipeliner, expiration time.Duration) error {
+	room := ctx.Value(RoomCtxKey{}).(*Room)
+	pipe.Set(ctx, "room:"+room.Id, roomJson, expiration)
+	return nil
+}

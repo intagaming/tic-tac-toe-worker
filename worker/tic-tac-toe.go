@@ -128,20 +128,29 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 			Name:      clientId,
 			Connected: true,
 		}
+
+		roomJson, err := shared.MarshallRoom(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		pipe := rdb.Pipeline()
+
 		// Save, and persist the room
-		err := shared.SaveRoomToRedis(ctx, 0)
+		err = shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, 0)
 		if err != nil {
 			panic(err)
 		}
 		// Persists the client's roomId
-		rdb.Set(ctx, "client:"+clientId, roomId, 0)
+		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 
-		// Send the room state
-		roomJson, err := json.Marshal(room)
+		_, err = pipe.Exec(ctx)
 		if err != nil {
-			log.Printf("Error marshalling room: %s\n", err)
+			log.Println(err)
 			return
 		}
+
 		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 		return
 	} else if room.Host.Name != clientId && room.Guest == nil { // If not the host and no guest set
@@ -150,54 +159,68 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 			Name:      clientId,
 			Connected: true,
 		}
+		roomJson, err := shared.MarshallRoom(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		pipe := rdb.Pipeline()
+
 		// Save, and persist the room
-		err := shared.SaveRoomToRedis(ctx, 0)
+		err = shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, 0)
 		if err != nil {
 			panic(err)
 		}
 		// Persists the client's roomId
-		rdb.Set(ctx, "client:"+clientId, roomId, 0)
+		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 
-		// Send the room state
-		roomJson, err := json.Marshal(room)
+		_, err = pipe.Exec(ctx)
 		if err != nil {
-			log.Printf("Error marshalling room: %s\n", err)
+			log.Println(err)
 			return
 		}
+
 		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 		return
 	} else if room.Host.Name == clientId || room.Guest.Name == clientId { // If re-joining
+
+		pipe := rdb.Pipeline()
 		// Persists the client's roomId
-		rdb.Set(ctx, "client:"+clientId, roomId, 0)
+		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 		// Persists the room
-		rdb.Persist(ctx, "room:"+roomId)
+		pipe.Persist(ctx, "room:"+roomId)
 
 		if room.Host != nil && room.Host.Name == clientId {
 			room.Host.Connected = true
-			shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 		} else if room.Guest != nil && room.Guest.Name == clientId {
 			room.Guest.Connected = true
-			shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 		}
-
-		// Send the room state
-		roomJson, err := json.Marshal(room)
+		roomJson, err := shared.MarshallRoom(ctx)
 		if err != nil {
-			log.Printf("Error marshalling room: %s\n", err)
+			log.Println(err)
 			return
 		}
-		_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
-		serverChannel.Publish(ctx, ClientReconnected.String(), clientId)
-	}
+		shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, redis.KeepTTL)
 
-	// TODO: do something when the room is full
-	// Send the room state
-	roomJson, err := json.Marshal(room)
-	if err != nil {
-		log.Printf("Error marshalling room: %s\n", err)
+		_, err = pipe.Exec(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		serverChannel.PublishMultiple(ctx, []*ably.Message{
+			{
+				Name: RoomState.String(),
+				Data: string(roomJson),
+			},
+			{
+				Name: ClientReconnected.String(),
+				Data: clientId,
+			},
+		})
 		return
 	}
-	_ = serverChannel.Publish(ctx, RoomState.String(), string(roomJson))
 }
 
 func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
