@@ -181,6 +181,12 @@ func tryTick(ctx context.Context) {
 		tickCtx = withServerChannelFromRoomCtx(tickCtx)
 		// Tick
 		tick(tickCtx)
+		// It's multiple round trips to the Redis: however much there are inside the
+		// tick() function, and the below ZAdd. Until we release the lock, no other
+		// ticker or worker will intervene, so we should have time to schedule the
+		// next tick. An additional ZAdd roundtrip is sacrificed so that tick() can
+		// do whatever they like without us caring. Maybe they want to execute the
+		// pipe immediately to get results before our ZAdd.
 
 		// Schedule next tick
 		correctNextTickTime := unix.Add(TickTime)
