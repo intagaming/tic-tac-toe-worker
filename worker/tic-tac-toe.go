@@ -160,9 +160,8 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		// Persists the client's roomId
 		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 
-		_, err = pipe.Exec(ctx)
-		if err != nil {
-			log.Println(err)
+		if _, err := pipe.Exec(ctx); err != nil {
+			log.Println("Error executing pipeline: ", err)
 			return
 		}
 
@@ -190,9 +189,8 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		// Persists the client's roomId
 		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 
-		_, err = pipe.Exec(ctx)
-		if err != nil {
-			log.Println(err)
+		if _, err := pipe.Exec(ctx); err != nil {
+			log.Println("Error executing pipeline: ", err)
 			return
 		}
 
@@ -218,9 +216,8 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, redis.KeepTTL)
 
-		_, err = pipe.Exec(ctx)
-		if err != nil {
-			log.Println(err)
+		if _, err := pipe.Exec(ctx); err != nil {
+			log.Println("Error executing pipeline: ", err)
 			return
 		}
 
@@ -276,9 +273,8 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 	}
 	shared.SaveRoomToRedisInPipeline(ctx, pipe, redis.KeepTTL)
 
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		log.Println(err)
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Println("Error executing pipeline: ", err)
 		return
 	}
 
@@ -309,9 +305,8 @@ func RemovePlayerFromRoom(ctx context.Context, clientToRemove string) {
 
 	publishMessages := RemovePlayerFromRoomInPipeline(ctx, pipe, clientToRemove)
 
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		log.Println()
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Println("Error executing pipeline: ", err)
 		return
 	}
 
@@ -371,8 +366,7 @@ func RemovePlayerFromRoomInPipeline(ctx context.Context, pipe redis.Pipeliner, c
 		}
 	}
 
-	_, err := pipe.Exec(ctx)
-	if err != nil {
+	if _, err := pipe.Exec(ctx); err != nil {
 		log.Printf("Error running remove player pipeline: %s", err)
 		return nil
 	}
