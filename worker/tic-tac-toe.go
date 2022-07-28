@@ -146,7 +146,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 
 		roomJson, err := shared.MarshallRoom(ctx)
 		if err != nil {
-			log.Println(err)
+			log.Println("Error marshalling room: ", err)
 			return
 		}
 
@@ -172,7 +172,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		roomJson, err := shared.MarshallRoom(ctx)
 		if err != nil {
-			log.Println(err)
+			log.Println("Error marshalling room: ", err)
 			return
 		}
 
@@ -205,7 +205,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		}
 		roomJson, err := shared.MarshallRoom(ctx)
 		if err != nil {
-			log.Println(err)
+			log.Println("Error marshalling room: ", err)
 			return
 		}
 		shared.SaveRoomToRedisWithJsonAppendPipeline(ctx, roomJson, pipe, redis.KeepTTL)
@@ -399,17 +399,19 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		turnEndsAt := int(now.Add(30 * time.Second).Unix())
 		room.State = "playing"
 		room.Data.TurnEndsAt = turnEndsAt
-		err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
+
+		roomJson, err := shared.MarshallRoom(ctx)
+		if err != nil {
+			log.Println("Error marshalling room: ", err)
+			return
+		}
+
+		err = shared.SaveRoomToRedisWithJson(ctx, roomJson, redis.KeepTTL)
 		if err != nil {
 			log.Println("Error saving room to redis: ", err)
 			return
 		}
 
-		roomJson, err := shared.MarshallRoom(ctx)
-		if err != nil {
-			log.Println(err)
-			return
-		}
 		_ = serverChannel.Publish(ctx, GameStartsNow.String(), string(roomJson))
 	case LeaveRoom.String():
 		// Remove player from room

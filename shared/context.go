@@ -34,12 +34,17 @@ func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 }
 
 func SaveRoomToRedis(ctx context.Context, expiration time.Duration) error {
-	rdb := ctx.Value(RedisCtxKey{}).(*redis.Client)
 	room := ctx.Value(RoomCtxKey{}).(*Room)
 	roomJson, err := json.Marshal(room)
 	if err != nil {
 		return fmt.Errorf("error marshalling room: %w", err)
 	}
+	return SaveRoomToRedisWithJson(ctx, roomJson, expiration)
+}
+
+func SaveRoomToRedisWithJson(ctx context.Context, roomJson []byte, expiration time.Duration) error {
+	rdb := ctx.Value(RedisCtxKey{}).(*redis.Client)
+	room := ctx.Value(RoomCtxKey{}).(*Room)
 	rdb.Set(ctx, "room:"+room.Id, roomJson, expiration)
 	return nil
 }
@@ -48,7 +53,7 @@ func MarshallRoom(ctx context.Context) ([]byte, error) {
 	room := ctx.Value(RoomCtxKey{}).(*Room)
 	roomJson, err := json.Marshal(room)
 	if err != nil {
-		return nil, fmt.Errorf("error marshalling room: %w", err)
+		return nil, err
 	}
 	return roomJson, nil
 }
