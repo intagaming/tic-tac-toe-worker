@@ -357,8 +357,7 @@ func RemovePlayerFromRoomAppendPipeline(ctx context.Context, pipe redis.Pipeline
 	}
 
 	if roomChanged {
-		err := shared.SaveRoomToRedisAppendPipeline(ctx, pipe, redis.KeepTTL)
-		if err != nil {
+		if err := shared.SaveRoomToRedisAppendPipeline(ctx, pipe, redis.KeepTTL); err != nil {
 			return nil, err
 		}
 	}
@@ -406,8 +405,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			return
 		}
 
-		err = shared.SaveRoomToRedisWithJson(ctx, roomJson, redis.KeepTTL)
-		if err != nil {
+		if err := shared.SaveRoomToRedisWithJson(ctx, roomJson, redis.KeepTTL); err != nil {
 			log.Println("Error saving room to redis: ", err)
 			return
 		}
@@ -517,8 +515,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 			room.Data.Turn = nextTurn
 		}
 
-		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-		if err != nil {
+		if err := shared.SaveRoomToRedis(ctx, redis.KeepTTL); err != nil {
 			log.Println("Error saving room to redis: ", err)
 			return
 		}

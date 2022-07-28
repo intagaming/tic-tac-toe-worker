@@ -315,8 +315,7 @@ func tick(ctx context.Context) {
 					TurnEndsAt: -1,
 					GameEndsAt: -1,
 				}
-				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
-				if err != nil {
+				if err := shared.SaveRoomToRedis(ctx, redis.KeepTTL); err != nil {
 					log.Println("Error saving room to redis: ", err)
 					return
 				}

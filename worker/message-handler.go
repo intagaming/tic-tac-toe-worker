@@ -48,8 +48,7 @@ type Message struct {
 
 func unmarshalPresence(payload []byte) (*PresenceMessage, error) {
 	msg := &PresenceMessage{}
-	err := json.Unmarshal(payload, msg)
-	if err != nil {
+	if err := json.Unmarshal(payload, msg); err != nil {
 		return nil, err
 	}
 	return msg, nil
@@ -57,8 +56,7 @@ func unmarshalPresence(payload []byte) (*PresenceMessage, error) {
 
 func unmarshalMessage(payload []byte) (*MessageMessage, error) {
 	msg := &MessageMessage{}
-	err := json.Unmarshal(payload, msg)
-	if err != nil {
+	if err := json.Unmarshal(payload, msg); err != nil {
 		return nil, err
 	}
 	return msg, nil

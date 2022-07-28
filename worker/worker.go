@@ -19,8 +19,7 @@ func New(ctx context.Context) func() error {
 			log.Panicf("Error connecting to RabbitMQ: %s", err)
 		}
 		defer func(conn *amqp.Connection) {
-			err := conn.Close()
-			if err != nil {
+			if err := conn.Close(); err != nil {
 				log.Panicf("Error closing connection: %s", err)
 			}
 		}(conn)
@@ -31,8 +30,7 @@ func New(ctx context.Context) func() error {
 			log.Panicf("Failed to open a channel: %s", err)
 		}
 		defer func(ch *amqp.Channel) {
-			err := ch.Close()
-			if err != nil {
+			if err := ch.Close(); err != nil {
 				log.Panicf("Error closing channel: %s", err)
 			}
 		}(ch)

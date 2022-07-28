@@ -26,8 +26,7 @@ func WithRoom(ctx context.Context, roomId string) (context.Context, error) {
 	}
 
 	var data Room
-	err = json.Unmarshal([]byte(val), &data)
-	if err != nil {
+	if err = json.Unmarshal([]byte(val), &data); err != nil {
 		return ctx, fmt.Errorf("error unmarshalling json data: %w. Raw: %s", err, val)
 	}
 	return context.WithValue(ctx, RoomCtxKey{}, &data), err
