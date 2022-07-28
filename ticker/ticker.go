@@ -262,7 +262,12 @@ func tick(ctx context.Context) {
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				publishMessages = append(publishMessages, worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Guest.Name)...)
+				messages, err := worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Guest.Name)
+				if err != nil {
+					log.Println("Error pipelining removing player from room: ", err)
+				} else {
+					publishMessages = append(publishMessages, messages...)
+				}
 			}
 		}
 		if room.Host != nil {
@@ -270,7 +275,12 @@ func tick(ctx context.Context) {
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				publishMessages = append(publishMessages, worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Host.Name)...)
+				messages, err := worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Host.Name)
+				if err != nil {
+					log.Println("Error pipelining removing player from room: ", err)
+				} else {
+					publishMessages = append(publishMessages, messages...)
+				}
 			}
 		}
 
@@ -307,7 +317,8 @@ func tick(ctx context.Context) {
 				}
 				err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 				if err != nil {
-					panic(err)
+					log.Println("Error saving room to redis: ", err)
+					return
 				}
 
 				// Announce the game ended and room state

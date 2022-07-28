@@ -63,8 +63,7 @@ func SaveRoomToRedisInPipeline(ctx context.Context, pipe redis.Pipeliner, expira
 	return nil
 }
 
-func SaveRoomToRedisWithJsonInPipeline(ctx context.Context, roomJson []byte, pipe redis.Pipeliner, expiration time.Duration) error {
+func SaveRoomToRedisWithJsonInPipeline(ctx context.Context, roomJson []byte, pipe redis.Pipeliner, expiration time.Duration) {
 	room := ctx.Value(RoomCtxKey{}).(*Room)
 	pipe.Set(ctx, "room:"+room.Id, roomJson, expiration)
-	return nil
 }

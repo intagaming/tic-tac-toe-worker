@@ -153,10 +153,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		pipe := rdb.Pipeline()
 
 		// Save, and persist the room
-		err = shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, 0)
-		if err != nil {
-			panic(err)
-		}
+		shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, 0)
 		// Persists the client's roomId
 		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 
@@ -182,10 +179,7 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		pipe := rdb.Pipeline()
 
 		// Save, and persist the room
-		err = shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, 0)
-		if err != nil {
-			panic(err)
-		}
+		shared.SaveRoomToRedisWithJsonInPipeline(ctx, roomJson, pipe, 0)
 		// Persists the client's roomId
 		pipe.Set(ctx, "client:"+clientId, roomId, 0)
 
@@ -297,27 +291,30 @@ func onMessage(ctx context.Context, messageMessage *MessageMessage) {
 	}
 }
 
-func RemovePlayerFromRoom(ctx context.Context, clientToRemove string) {
+func RemovePlayerFromRoom(ctx context.Context, clientToRemove string) error {
 	serverChannel := ctx.Value(shared.ServerChannelCtxKey{}).(*ably.RealtimeChannel)
 
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	pipe := rdb.Pipeline()
 
-	publishMessages := RemovePlayerFromRoomInPipeline(ctx, pipe, clientToRemove)
+	publishMessages, err := RemovePlayerFromRoomInPipeline(ctx, pipe, clientToRemove)
+	if err != nil {
+		return err
+	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		log.Println("Error executing pipeline: ", err)
-		return
+		return fmt.Errorf("error executing pipeline: %w", err)
 	}
 
 	serverChannel.PublishMultiple(ctx, publishMessages)
+	return nil
 }
 
 // RemovePlayerFromRoomInPipeline removes a player from a room, but all Redis
 // calls are appended to a pipeline. It returns the messages that must be
 // announced on the serverChannel after the pipeline is executed to announce
 // that the player is removed.
-func RemovePlayerFromRoomInPipeline(ctx context.Context, pipe redis.Pipeliner, clientToRemove string) []*ably.Message {
+func RemovePlayerFromRoomInPipeline(ctx context.Context, pipe redis.Pipeliner, clientToRemove string) ([]*ably.Message, error) {
 	room := ctx.Value(shared.RoomCtxKey{}).(*shared.Room)
 
 	var publishMessages []*ably.Message
@@ -362,16 +359,11 @@ func RemovePlayerFromRoomInPipeline(ctx context.Context, pipe redis.Pipeliner, c
 	if roomChanged {
 		err := shared.SaveRoomToRedisInPipeline(ctx, pipe, redis.KeepTTL)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 	}
 
-	if _, err := pipe.Exec(ctx); err != nil {
-		log.Printf("Error running remove player pipeline: %s\n", err)
-		return nil
-	}
-
-	return publishMessages
+	return publishMessages, nil
 }
 
 func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage) {
@@ -409,7 +401,8 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		room.Data.TurnEndsAt = turnEndsAt
 		err := shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 		if err != nil {
-			panic(err)
+			log.Println("Error saving room to redis: ", err)
+			return
 		}
 
 		roomJson, err := shared.MarshallRoom(ctx)
@@ -421,7 +414,10 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 	case LeaveRoom.String():
 		// Remove player from room
 		clientToRemove := msg.Data
-		RemovePlayerFromRoom(ctx, clientToRemove)
+		if err := RemovePlayerFromRoom(ctx, clientToRemove); err != nil {
+			log.Println("Error removing player from room: ", err)
+			return
+		}
 	case CheckBox.String():
 		boxToCheck, err := strconv.Atoi(msg.Data)
 		if err != nil {
@@ -521,7 +517,8 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 		err = shared.SaveRoomToRedis(ctx, redis.KeepTTL)
 		if err != nil {
-			panic(err)
+			log.Println("Error saving room to redis: ", err)
+			return
 		}
 
 		serverChannel.PublishMultiple(ctx, publishMessages)
