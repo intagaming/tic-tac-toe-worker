@@ -1,5 +1,13 @@
 package shared
 
+type RoomState string
+
+const (
+	Waiting   RoomState = "waiting"
+	Playing   RoomState = "playing"
+	Finishing RoomState = "finishing"
+)
+
 type Player struct {
 	Name      string `json:"name"`
 	Connected bool   `json:"connected"`
@@ -8,7 +16,7 @@ type Player struct {
 type Room struct {
 	Id    string        `json:"id"`
 	Host  *Player       `json:"host"`
-	State string        `json:"state"`
+	State RoomState     `json:"state"`
 	Guest *Player       `json:"guest"`
 	Data  TicTacToeData `json:"data"`
 }

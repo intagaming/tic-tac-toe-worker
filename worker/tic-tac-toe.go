@@ -341,8 +341,8 @@ func RemovePlayerFromRoomAppendPipeline(ctx context.Context, pipe redis.Pipeline
 	})
 
 	// End the game if playing
-	if room.State == "playing" {
-		room.State = "finishing"
+	if room.State == shared.Playing {
+		room.State = shared.Finishing
 		gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
 		room.Data.GameEndsAt = gameEndsAt
 		roomChanged = true
@@ -385,14 +385,14 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 	switch msg.Name {
 	case StartGame.String():
-		if room.State != "waiting" || room.Host == nil || room.Guest == nil || room.Host.Name != msg.ClientId {
+		if room.State != shared.Waiting || room.Host == nil || room.Guest == nil || room.Host.Name != msg.ClientId {
 			return
 		}
 
 		// Starting the game...
 		now := time.Now()
 		turnEndsAt := int(now.Add(30 * time.Second).Unix())
-		room.State = "playing"
+		room.State = shared.Playing
 		room.Data.TurnEndsAt = turnEndsAt
 
 		roomJson, err := shared.MarshallRoom(ctx)
@@ -474,7 +474,7 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 		}
 		if result != Undecided {
 			// Change game state
-			room.State = "finishing"
+			room.State = shared.Finishing
 			gameEndsAt := int(time.Now().Add(5 * time.Second).Unix())
 			room.Data.GameEndsAt = gameEndsAt
 

@@ -194,7 +194,7 @@ func tryTick(ctx context.Context) {
 		room := tickCtx.Value(shared.RoomCtxKey{}).(*shared.Room)
 		var chosenTickTime time.Duration
 		switch room.State {
-		case "waiting":
+		case shared.Waiting:
 			chosenTickTime = WaitingTickTime
 		default:
 			chosenTickTime = TickTime
@@ -262,7 +262,7 @@ func tick(ctx context.Context) {
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 
 	switch room.State {
-	case "waiting":
+	case shared.Waiting:
 		pipe := rdb.Pipeline()
 		var publishMessages []*ably.Message
 
@@ -309,15 +309,15 @@ func tick(ctx context.Context) {
 		if len(publishMessages) > 0 {
 			serverChannel.PublishMultiple(ctx, publishMessages)
 		}
-	case "playing":
-	case "finishing":
+	case shared.Playing:
+	case shared.Finishing:
 		// Check if the room is past gameEndsAt
 		if room.Data.GameEndsAt != -1 {
 			gameEndsAt := time.Unix(int64(room.Data.GameEndsAt), 0)
 			if time.Now().After(gameEndsAt) {
 				// Ends the game
 				// Reset the room state to waiting
-				room.State = "waiting"
+				room.State = shared.Waiting
 				room.Data = shared.TicTacToeData{
 					Ticks:      0,
 					Board:      []*string{nil, nil, nil, nil, nil, nil, nil, nil, nil},
