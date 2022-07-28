@@ -20,8 +20,7 @@ import (
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
+	if err := godotenv.Load(); err != nil {
 		log.Println("Not loading .env file. Assuming env vars are available.")
 	}
 
