@@ -123,8 +123,8 @@ func tryTick(ctx context.Context) {
 		}
 
 		// Try to acquire lock on the room
-		mutexname := "lockroom:" + candidate.Member.(string)
-		mutex := rs.NewMutex(mutexname)
+		mutexName := shared.RoomLockName(candidate.Member.(string))
+		mutex := rs.NewMutex(mutexName)
 		if err := mutex.Lock(); err != nil {
 			log.Println("Error acquiring lock: ", err)
 			continue // Retry

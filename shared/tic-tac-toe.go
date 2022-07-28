@@ -22,3 +22,7 @@ type TicTacToeData struct {
 	// GameEndsAt is in Unix seconds.
 	GameEndsAt int `json:"gameEndsAt"`
 }
+
+func RoomLockName(roomId string) string {
+	return "lockroom:" + roomId
+}

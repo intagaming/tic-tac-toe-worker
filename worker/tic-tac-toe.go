@@ -122,8 +122,8 @@ func onControlChannelEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	// Lock room
 	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
-	mutexname := "lockroom:" + room.Id
-	mutex := rs.NewMutex(mutexname)
+	mutexName := shared.RoomLockName(room.Id)
+	mutex := rs.NewMutex(mutexName)
 	if err := mutex.Lock(); err != nil {
 		log.Println("Error acquiring lock: ", err)
 		// We couldn't acquire lock. We decide to drop the request.
@@ -247,8 +247,8 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	// Lock room
 	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
-	mutexname := "lockroom:" + room.Id
-	mutex := rs.NewMutex(mutexname)
+	mutexName := shared.RoomLockName(room.Id)
+	mutex := rs.NewMutex(mutexName)
 	if err := mutex.Lock(); err != nil {
 		log.Println("Error acquiring lock: ", err)
 		// We couldn't acquire lock. We decide to drop the request.
@@ -388,8 +388,8 @@ func onControlChannelMessage(ctx context.Context, messageMessage *MessageMessage
 
 	// Lock room
 	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
-	mutexname := "lockroom:" + room.Id
-	mutex := rs.NewMutex(mutexname)
+	mutexName := shared.RoomLockName(room.Id)
+	mutex := rs.NewMutex(mutexName)
 	if err := mutex.Lock(); err != nil {
 		log.Println("Error acquiring lock: ", err)
 		// We couldn't acquire lock. We decide to drop the request.
