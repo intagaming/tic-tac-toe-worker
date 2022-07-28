@@ -262,7 +262,7 @@ func tick(ctx context.Context) {
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				messages, err := worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Guest.Name)
+				messages, err := worker.RemovePlayerFromRoomAppendPipeline(ctx, pipe, room.Guest.Name)
 				if err != nil {
 					log.Println("Error pipelining removing player from room: ", err)
 				} else {
@@ -275,7 +275,7 @@ func tick(ctx context.Context) {
 			if err != nil && err != redis.Nil {
 				log.Println("Error checking if client exists: ", err)
 			} else if err == redis.Nil || roomId != room.Id {
-				messages, err := worker.RemovePlayerFromRoomInPipeline(ctx, pipe, room.Host.Name)
+				messages, err := worker.RemovePlayerFromRoomAppendPipeline(ctx, pipe, room.Host.Name)
 				if err != nil {
 					log.Println("Error pipelining removing player from room: ", err)
 				} else {
