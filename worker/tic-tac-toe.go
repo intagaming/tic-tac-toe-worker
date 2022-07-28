@@ -88,7 +88,7 @@ func onEnter(ctx context.Context, presenceMsg *PresenceMessage) {
 		ctx = withServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
-			log.Printf("Error getting room: %s", err)
+			log.Printf("Error getting room: %s\n", err)
 			return
 		}
 		onControlChannelEnter(ctx, presenceMsg)
@@ -104,7 +104,7 @@ func onLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 		ctx = withServerChannelFromChannel(ctx, channel)
 		ctx, err := shared.WithRoom(ctx, roomIdFromControlChannel(channel))
 		if err != nil {
-			log.Printf("Error getting room: %s", err)
+			log.Printf("Error getting room: %s\n", err)
 			return
 		}
 		onControlChannelLeave(ctx, presenceMsg)
@@ -367,7 +367,7 @@ func RemovePlayerFromRoomInPipeline(ctx context.Context, pipe redis.Pipeliner, c
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		log.Printf("Error running remove player pipeline: %s", err)
+		log.Printf("Error running remove player pipeline: %s\n", err)
 		return nil
 	}
 

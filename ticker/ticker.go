@@ -204,7 +204,7 @@ func tryTick(ctx context.Context) {
 
 		timeElapsed := time.Since(startTime)
 		if time.Now().After(correctNextTickTime) {
-			log.Printf("Room %s is late by %v. Don't delay! Tick today.", candidate.Member, time.Until(correctNextTickTime))
+			log.Printf("Room %s is late by %v. Don't delay! Tick today.\n", candidate.Member, time.Until(correctNextTickTime))
 			return
 		}
 		if timeElapsed < TickTime/2 {
