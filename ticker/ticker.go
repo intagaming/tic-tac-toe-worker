@@ -30,6 +30,8 @@ const IdleInterval = 5 * time.Second // In idle mode, we will tick every followi
 // the lowest scores and being realized before the being-processed task.
 const PushbackTime = TickTime * 5
 
+const WaitingTickTime = 3 * time.Second
+
 // type tickerIdCtxKey struct{}
 
 // var tickerCounter int = 0
@@ -189,9 +191,17 @@ func tryTick(ctx context.Context) {
 		// pipe immediately to get results before our ZAdd.
 
 		// Schedule next tick
-		correctNextTickTime := unix.Add(TickTime)
+		room := tickCtx.Value(shared.RoomCtxKey{}).(*shared.Room)
+		var chosenTickTime time.Duration
+		switch room.State {
+		case "waiting":
+			chosenTickTime = WaitingTickTime
+		default:
+			chosenTickTime = TickTime
+		}
+		correctNextTickTime := unix.Add(chosenTickTime)
 		// We just skip late ticks.
-		insistedNextTickTime := time.Now().Add(TickTime)
+		insistedNextTickTime := time.Now().Add(chosenTickTime)
 		rdb.ZAdd(ctx, "tickingRooms", &redis.Z{
 			Score:  float64(insistedNextTickTime.UnixMicro()),
 			Member: candidate.Member,
