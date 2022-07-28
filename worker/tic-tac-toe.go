@@ -16,7 +16,7 @@ import (
 	"github.com/go-redsync/redsync/v4"
 )
 
-const RoomTimeoutTime = 1 * time.Minute
+const PlayerReconnectTime = 30 * time.Second
 
 type Announcers int
 
@@ -254,12 +254,8 @@ func onControlChannelLeave(ctx context.Context, presenceMsg *PresenceMessage) {
 
 	pipe := rdb.Pipeline()
 
-	// The client has some time to join the room again. The due time is before the
-	// time the room expires minus 10 seconds. The 10 seconds is the wiggle-room,
-	// because if the player joins right at the time that the room is about to
-	// expire, the room might have already expired by the time the player
-	// establishes connection.
-	pipe.Expire(ctx, "client:"+clientId, RoomTimeoutTime-10*time.Second)
+	// The client has some time to join the room again
+	pipe.Expire(ctx, "client:"+clientId, PlayerReconnectTime)
 	if room.Host != nil && room.Host.Name == clientId {
 		room.Host.Connected = false
 	} else if room.Guest != nil && room.Guest.Name == clientId {
