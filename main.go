@@ -50,18 +50,9 @@ func main() {
 	rs := redsync.New(pool)
 	gCtx = context.WithValue(gCtx, shared.RedsyncCtxKey{}, rs)
 
-	// Starting workers for listening for messages on the queue
-	// Getting number of workers
-	numWorkersStr := os.Getenv("NUMBER_OF_WORKERS")
-	numWorkers, err := strconv.Atoi(numWorkersStr)
-	if err != nil {
-		log.Println("Could not parse number of workers. Using default value of 1.")
-		numWorkers = 1
-	}
-	// Start workers
-	for i := 0; i < numWorkers; i++ {
-		g.Go(worker.New(gCtx))
-	}
+	// Starting a worker for listening for messages on the queue.
+	// A worker spins up multiple goroutines to handle messages.
+	g.Go(worker.New(gCtx))
 
 	// Starting tickers for ticking the rooms
 	// Getting number of tickers
