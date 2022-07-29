@@ -78,7 +78,7 @@ func tryTick(ctx context.Context) {
 	rdb := ctx.Value(shared.RedisCtxKey{}).(*redis.Client)
 	rs := ctx.Value(shared.RedsyncCtxKey{}).(*redsync.Redsync)
 
-	// Keep trying until ticking once, then quit tick()
+	// Keep trying until ticking once, then break the loop.
 	for {
 		// Find the lowest score task in the queue
 		// TODO: change to infinity somehow
@@ -91,11 +91,18 @@ func tryTick(ctx context.Context) {
 			log.Println("Error getting lowest score task: ", err)
 			return
 		}
-		if len(zs) == 0 {
+		if len(zs) == 0 { // If there are no room to tick
 			// Sleep half a tick because we're not very busy
 			idleHalfTick(ctx)
 			return
 		}
+
+		// There are some rooms to tick.
+		// We will reset the idle ticks.
+		if ticker.idleHalfTicks > 0 {
+			ticker.idleHalfTicks = 0
+		}
+
 		candidate := zs[0]
 		startTime := time.Now()
 		// .Score is in UnixMicro, so we divide by 1e6 to get seconds, but from seconds we multiply by 1e9 to get nanoseconds
@@ -111,7 +118,7 @@ func tryTick(ctx context.Context) {
 					ticker.sleepUntil = unix
 				}
 			} else {
-				idleHalfTick(ctx)
+				ticker.sleepUntil = time.Now().Add(TickTime / 2)
 			}
 			return
 		}
@@ -119,9 +126,6 @@ func tryTick(ctx context.Context) {
 		// We're in business. If in idle mode, turn it off.
 		if ticker.idle {
 			idleOff(ctx)
-		}
-		if ticker.idleHalfTicks > 0 {
-			ticker.idleHalfTicks = 0
 		}
 
 		// Try to acquire lock on the room
